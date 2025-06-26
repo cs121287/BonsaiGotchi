@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 
@@ -13,26 +14,26 @@ namespace BonsaiGotchi.BreedingSystem
     {
         // Collection of owned bonsai trees
         public List<BonsaiSpecimen> Collection { get; private set; } = new List<BonsaiSpecimen>();
-        
+
         // Seeds from breeding
         public List<BonsaiSeed> Seeds { get; private set; } = new List<BonsaiSeed>();
-        
+
         // Statistics
         public int TotalBreedingAttempts { get; private set; } = 0;
         public int SuccessfulBreedings { get; private set; } = 0;
-        
+
         // Current active bonsai (the one being displayed)
         public BonsaiPet ActiveBonsai { get; private set; }
-        
+
         private readonly Random random;
-        
+
         /// <summary>
         /// Initialize the breeding manager
         /// </summary>
         public BreedingManager(Random random, BonsaiPet initialBonsai = null)
         {
             this.random = random;
-            
+
             // Add the initial bonsai to the collection if provided
             if (initialBonsai != null)
             {
@@ -40,22 +41,22 @@ namespace BonsaiGotchi.BreedingSystem
                 AddToCollection(initialBonsai);
             }
         }
-        
+
         #region Collection Management
-        
+
         /// <summary>
         /// Add a bonsai to the collection
         /// </summary>
         public void AddToCollection(BonsaiPet bonsai)
         {
             if (bonsai == null) return;
-            
+
             // Check if already in collection by ID
             if (Collection.Any(b => b.Id == bonsai.Id))
             {
                 return; // Already in collection
             }
-            
+
             // Create specimen record
             var specimen = new BonsaiSpecimen
             {
@@ -67,11 +68,11 @@ namespace BonsaiGotchi.BreedingSystem
                 Genetics = new BonsaiGenetics(random), // Create new genetics for existing bonsai
                 BonsaiInstance = bonsai
             };
-            
+
             // Add to collection
             Collection.Add(specimen);
         }
-        
+
         /// <summary>
         /// Remove a bonsai from the collection
         /// </summary>
@@ -79,10 +80,10 @@ namespace BonsaiGotchi.BreedingSystem
         {
             int initialCount = Collection.Count;
             Collection.RemoveAll(b => b.Id == bonsaiId);
-            
+
             return Collection.Count < initialCount;
         }
-        
+
         /// <summary>
         /// Get a specimen from the collection
         /// </summary>
@@ -90,27 +91,27 @@ namespace BonsaiGotchi.BreedingSystem
         {
             return Collection.FirstOrDefault(b => b.Id == bonsaiId);
         }
-        
+
         /// <summary>
         /// Set the active bonsai
         /// </summary>
         public void SetActiveBonsai(BonsaiPet bonsai)
         {
             if (bonsai == null) return;
-            
+
             // Add to collection if not already there
             if (!Collection.Any(b => b.Id == bonsai.Id))
             {
                 AddToCollection(bonsai);
             }
-            
+
             ActiveBonsai = bonsai;
         }
-        
+
         #endregion
-        
+
         #region Breeding Methods
-        
+
         /// <summary>
         /// Attempt to breed two bonsai trees
         /// </summary>
@@ -118,35 +119,35 @@ namespace BonsaiGotchi.BreedingSystem
         public BonsaiSeed TryBreed(Guid parent1Id, Guid parent2Id)
         {
             TotalBreedingAttempts++;
-            
+
             // Find parents in collection
             var parent1 = Collection.FirstOrDefault(b => b.Id == parent1Id);
             var parent2 = Collection.FirstOrDefault(b => b.Id == parent2Id);
-            
+
             if (parent1 == null || parent2 == null)
             {
                 return null; // Parents not found
             }
-            
+
             // Check if both parents are mature enough
             if (parent1.Stage < GrowthStage.MatureTree || parent2.Stage < GrowthStage.MatureTree)
             {
                 return null; // Parents not mature enough
             }
-            
+
             // Calculate breeding success chance
             double compatibility = parent1.Genetics.CalculateBreedingCompatibility(parent2.Genetics);
             double successChance = CalculateBreedingSuccessChance(parent1, parent2, compatibility);
-            
+
             // Roll for success
             if (random.NextDouble() > successChance)
             {
                 return null; // Breeding failed
             }
-            
+
             // Breeding successful!
             SuccessfulBreedings++;
-            
+
             // Create seed with combined genetics
             var seed = new BonsaiSeed
             {
@@ -159,45 +160,45 @@ namespace BonsaiGotchi.BreedingSystem
                 Parent2Name = parent2.Name,
                 Rarity = DetermineSeedRarity(parent1, parent2)
             };
-            
+
             // Add to seed collection
             Seeds.Add(seed);
-            
+
             return seed;
         }
-        
+
         /// <summary>
         /// Calculate the chance of successful breeding
         /// </summary>
         private double CalculateBreedingSuccessChance(
-            BonsaiSpecimen parent1, 
+            BonsaiSpecimen parent1,
             BonsaiSpecimen parent2,
             double compatibility)
         {
             // Base success chance based on compatibility (0.1 to 0.6)
             double baseChance = 0.1 + (compatibility * 0.5);
-            
+
             // Adjust for parent health
             double health1 = parent1.BonsaiInstance?.Health ?? 50;
             double health2 = parent2.BonsaiInstance?.Health ?? 50;
             double healthModifier = ((health1 + health2) / 200) * 0.2; // Up to 0.2 bonus
-            
+
             // Adjust for parent age
             double ageModifier = 0;
             if (parent1.Stage == GrowthStage.ElderTree && parent2.Stage == GrowthStage.ElderTree)
             {
                 ageModifier = 0.1; // Elder trees have better chance
             }
-            
+
             // Experience bonus from previous successful breedings
             double experienceBonus = Math.Min(0.1, SuccessfulBreedings * 0.01); // Up to 0.1
-            
+
             double finalChance = baseChance + healthModifier + ageModifier + experienceBonus;
-            
+
             // Ensure chance is between 0.05 and 0.9
             return Math.Max(0.05, Math.Min(0.9, finalChance));
         }
-        
+
         /// <summary>
         /// Determine the rarity of the resulting seed
         /// </summary>
@@ -205,18 +206,18 @@ namespace BonsaiGotchi.BreedingSystem
         {
             // Base rarity on parent genetics and a random factor
             int rarityScore = 0;
-            
+
             // Parent rarity contribution
             rarityScore += (int)parent1.Genetics.Rarity * 2;
             rarityScore += (int)parent2.Genetics.Rarity * 2;
-            
+
             // Special trait contribution
             rarityScore += parent1.Genetics.SpecialTraits.Count;
             rarityScore += parent2.Genetics.SpecialTraits.Count;
-            
+
             // Random factor
             rarityScore += random.Next(5);
-            
+
             // Determine rarity based on score
             if (rarityScore >= 20)
             {
@@ -239,7 +240,7 @@ namespace BonsaiGotchi.BreedingSystem
                 return SeedRarity.Common;
             }
         }
-        
+
         /// <summary>
         /// Plant a seed to create a new bonsai
         /// </summary>
@@ -248,22 +249,22 @@ namespace BonsaiGotchi.BreedingSystem
             // Find the seed in collection
             var seed = Seeds.FirstOrDefault(s => s.Id == seedId);
             if (seed == null) return null;
-            
+
             // Remove the seed from collection
             Seeds.Remove(seed);
-            
+
             // Create a new bonsai with the seed's genetics
             var bonsai = new BonsaiPet(name, random);
-            
+
             // Apply the seed's genetics to the bonsai
             ApplySeedGenetics(bonsai, seed);
-            
+
             // Add the new bonsai to the collection
             AddToCollection(bonsai);
-            
+
             return bonsai;
         }
-        
+
         /// <summary>
         /// Apply seed genetics to a bonsai
         /// </summary>
@@ -271,61 +272,61 @@ namespace BonsaiGotchi.BreedingSystem
         {
             // Apply style based on genetics
             bonsai.Style = seed.Genetics.DominantStyle;
-            
+
             // Apply species to traits
-            string[] traits = seed.Genetics.Species.Split(' ');
-            bonsai.Traits.AddRange(traits);
-            
+            string[] traitStrings = seed.Genetics.Species.Split(' ');
+            bonsai.AddTraits(traitStrings);
+
             // Apply special traits to likes/dislikes
             foreach (var specialTrait in seed.Genetics.SpecialTraits)
             {
                 switch (specialTrait)
                 {
                     case SpecialTrait.RedLeaves:
-                        bonsai.Traits.Add("Red-Leafed");
+                        bonsai.AddTrait("Red-Leafed");
                         break;
                     case SpecialTrait.VarlegetedLeaves:
-                        bonsai.Traits.Add("Variegated");
+                        bonsai.AddTrait("Variegated");
                         break;
                     case SpecialTrait.DwarfGrowth:
-                        bonsai.Traits.Add("Dwarf");
+                        bonsai.AddTrait("Dwarf");
                         break;
                     case SpecialTrait.GiantGrowth:
-                        bonsai.Traits.Add("Giant");
+                        bonsai.AddTrait("Giant");
                         break;
                     case SpecialTrait.EarlyFlowering:
-                        bonsai.Traits.Add("Early Bloomer");
+                        bonsai.AddTrait("Early Bloomer");
                         break;
                     case SpecialTrait.WeepingForm:
-                        bonsai.Traits.Add("Weeping");
+                        bonsai.AddTrait("Weeping");
                         break;
                 }
             }
-            
+
             // Apply genetic traits to stats
             if (seed.Genetics.Genes.TryGetValue(GeneticTrait.DroughtTolerance, out int droughtTolerance))
             {
                 // High drought tolerance means slower water loss
-                bonsai.WaterNeeds = droughtTolerance > 70 ? 
+                bonsai.WaterNeeds = droughtTolerance > 70 ?
                     WaterPreference.Low :
-                    droughtTolerance < 30 ? 
-                        WaterPreference.High : 
+                    droughtTolerance < 30 ?
+                        WaterPreference.High :
                         WaterPreference.Moderate;
             }
-            
+
             if (seed.Genetics.Genes.TryGetValue(GeneticTrait.PestResistance, out int pestResistance))
             {
                 // Modify starting pest infestation based on resistance
                 bonsai.PestInfestation = Math.Max(0, 10 - (pestResistance / 10));
             }
-            
+
             if (seed.Genetics.Genes.TryGetValue(GeneticTrait.DiseaseResistance, out int diseaseResistance))
             {
                 // Modify starting disease level based on resistance
                 bonsai.DiseaseLevel = Math.Max(0, 10 - (diseaseResistance / 10));
             }
         }
-        
+
         /// <summary>
         /// Collect seeds from a mature bonsai
         /// </summary>
@@ -334,19 +335,19 @@ namespace BonsaiGotchi.BreedingSystem
             // Find the bonsai in collection
             var specimen = Collection.FirstOrDefault(b => b.Id == bonsaiId);
             if (specimen == null) return null;
-            
+
             // Check if mature enough
             if (specimen.Stage < GrowthStage.MatureTree)
             {
                 return null; // Not mature enough
             }
-            
+
             // Check if healthy enough
             if (specimen.BonsaiInstance?.Health < 60)
             {
                 return null; // Not healthy enough
             }
-            
+
             // Create a seed with the bonsai's genetics (self-pollination)
             var seed = new BonsaiSeed
             {
@@ -359,17 +360,17 @@ namespace BonsaiGotchi.BreedingSystem
                 Parent2Name = specimen.Name,
                 Rarity = SeedRarity.Common // Self-pollinated seeds are always common
             };
-            
+
             // Add to seed collection
             Seeds.Add(seed);
-            
+
             return seed;
         }
-        
+
         #endregion
-        
+
         #region Save/Load Methods
-        
+
         /// <summary>
         /// Save the breeding system data
         /// </summary>
@@ -381,7 +382,7 @@ namespace BonsaiGotchi.BreedingSystem
                 Seeds = Seeds,
                 TotalBreedingAttempts = TotalBreedingAttempts,
                 SuccessfulBreedings = SuccessfulBreedings,
-                
+
                 // Only save specimen data, not bonsai instances
                 CollectionData = Collection.Select(s => new BonsaiSpecimenData
                 {
@@ -393,14 +394,14 @@ namespace BonsaiGotchi.BreedingSystem
                     Genetics = s.Genetics
                 }).ToList()
             };
-            
+
             // Serialize and save
             var options = new JsonSerializerOptions { WriteIndented = true };
             string json = JsonSerializer.Serialize(saveData, options);
-            
+
             await File.WriteAllTextAsync(filePath, json);
         }
-        
+
         /// <summary>
         /// Load the breeding system data
         /// </summary>
@@ -411,17 +412,17 @@ namespace BonsaiGotchi.BreedingSystem
                 // Load and deserialize
                 string json = await File.ReadAllTextAsync(filePath);
                 var saveData = JsonSerializer.Deserialize<BreedingSystemSaveData>(json);
-                
+
                 if (saveData == null)
                 {
                     return false;
                 }
-                
+
                 // Restore data
                 Seeds = saveData.Seeds;
                 TotalBreedingAttempts = saveData.TotalBreedingAttempts;
                 SuccessfulBreedings = saveData.SuccessfulBreedings;
-                
+
                 // Convert specimen data back to specimens
                 Collection.Clear();
                 foreach (var data in saveData.CollectionData)
@@ -435,10 +436,10 @@ namespace BonsaiGotchi.BreedingSystem
                         Stage = data.Stage,
                         Genetics = data.Genetics
                     };
-                    
+
                     Collection.Add(specimen);
                 }
-                
+
                 return true;
             }
             catch (Exception ex)
@@ -447,12 +448,12 @@ namespace BonsaiGotchi.BreedingSystem
                 return false;
             }
         }
-        
+
         #endregion
     }
-    
+
     #region Support Classes
-    
+
     /// <summary>
     /// Represents a bonsai tree specimen in the collection
     /// </summary>
@@ -464,11 +465,11 @@ namespace BonsaiGotchi.BreedingSystem
         public int Age { get; set; }
         public GrowthStage Stage { get; set; }
         public BonsaiGenetics Genetics { get; set; }
-        
+
         [System.Text.Json.Serialization.JsonIgnore]
         public BonsaiPet BonsaiInstance { get; set; }
     }
-    
+
     /// <summary>
     /// Save data for a bonsai specimen (without the pet instance)
     /// </summary>
@@ -481,7 +482,7 @@ namespace BonsaiGotchi.BreedingSystem
         public GrowthStage Stage { get; set; }
         public BonsaiGenetics Genetics { get; set; }
     }
-    
+
     /// <summary>
     /// Represents a seed from breeding
     /// </summary>
@@ -498,7 +499,7 @@ namespace BonsaiGotchi.BreedingSystem
         public bool IsGerminating { get; set; }
         public int GerminationProgress { get; set; }
     }
-    
+
     /// <summary>
     /// Save data for the breeding system
     /// </summary>
@@ -509,7 +510,7 @@ namespace BonsaiGotchi.BreedingSystem
         public int TotalBreedingAttempts { get; set; }
         public int SuccessfulBreedings { get; set; }
     }
-    
+
     /// <summary>
     /// Rarity levels for seeds
     /// </summary>
@@ -521,6 +522,6 @@ namespace BonsaiGotchi.BreedingSystem
         Legendary,
         Mythic
     }
-    
+
     #endregion
 }

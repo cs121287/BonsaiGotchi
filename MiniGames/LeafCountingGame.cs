@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
+using Timer = System.Windows.Forms.Timer;
 
 namespace BonsaiGotchi.MiniGames
 {
@@ -14,7 +15,7 @@ namespace BonsaiGotchi.MiniGames
         private Label promptLabel;
         private NumericUpDown guessInput;
         private Button submitButton;
-        private Timer gameTimer;
+        private System.Windows.Forms.Timer gameTimer;
         
         private int actualLeafCount;
         private int secondsRemaining = 20;

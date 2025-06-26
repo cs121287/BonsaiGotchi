@@ -1,0 +1,47 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <ApplicationIcon>Resources\bonsai_icon.ico</ApplicationIcon>
+    <StartupObject>BonsaiGotchi.Program</StartupObject>
+    <Authors>cs121287</Authors>
+    <Description>Tamagotchi-style virtual bonsai pet game</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Resources\bonsai_icon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Resources\bonsai_icon.ico">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Compile Update="Properties\Resources.cs">
+      <DesignTime>True</DesignTime>
+      <AutoGen>True</AutoGen>
+    </Compile>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Resources\" />
+    <Folder Include="BreedingSystem\" />
+    <Folder Include="EnvironmentSystem\" />
+    <Folder Include="MiniGames\" />
+    <Folder Include="CollectionUI\" />
+    <Folder Include="EnvironmentUI\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="README.md">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

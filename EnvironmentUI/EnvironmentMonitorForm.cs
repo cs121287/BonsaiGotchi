@@ -3,6 +3,7 @@ using System.Drawing;
 using System.Windows.Forms;
 using System.Collections.Generic;
 using BonsaiGotchi.EnvironmentSystem;
+using Timer = System.Windows.Forms.Timer;
 
 namespace BonsaiGotchi.EnvironmentUI
 {

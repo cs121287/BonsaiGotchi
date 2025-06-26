@@ -4,229 +4,769 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Timers;
+using System.Drawing;
 
 namespace BonsaiGotchi
 {
     /// <summary>
-    /// Core class for the bonsai pet, implementing Tamagotchi-like mechanics
+    /// Main class for the virtual bonsai pet system
     /// </summary>
-    public class BonsaiPet
+    public partial class BonsaiPet
     {
-        #region Properties
+        #region Core Properties
 
-        // Identity properties
-        public string Name { get; set; }
-        public DateTime BirthDate { get; set; }
-        public Guid Id { get; set; }
+        // Basic stats
+        public string Name { get; private set; }
+        public double Health { get; set; } = 100;
+        public double Happiness { get; set; } = 100;
+        public double Hunger { get; set; } = 0;
+        public double Growth { get; set; } = 0;
+        public Guid Id { get; private set; } = Guid.NewGuid();
+        public List<BonsaiTrait> Traits { get; private set; } = new List<BonsaiTrait>();
 
-        // Core stats (0-100 scale)
-        public double Health { get; set; }
-        public double Happiness { get; set; }
-        public double Hunger { get; set; }
-        public double Growth { get; set; }
-
-        // Secondary stats
-        public double Hydration { get; set; }
-        public double SoilQuality { get; set; }
-        public double PruningQuality { get; set; }
-        public int Age { get; set; }  // Age in days
+        // Extended stats (Phase 2)
+        public double Hydration { get; set; } = 100;
+        public double PruningQuality { get; set; } = 100;
+        public double SoilQuality { get; set; } = 100;
+        public double StressLevel { get; set; } = 0;
+        public double PestInfestation { get; set; } = 0;
+        public double DiseaseLevel { get; set; } = 0;
         
-        // In-game time
-        public DateTime InGameTime { get; set; }
-        public double TimeMultiplier { get; set; }
+        // Activity tracking (Phase 2)
+        public DateTime LastActivity { get; set; }
+        public double ActivityScore { get; set; } = 70;
+        public int TotalWaterings { get; set; } = 0;
+        public int TotalFeedings { get; set; } = 0;
+        public int TotalPrunings { get; set; } = 0;
+        public int TotalRepottings { get; set; } = 0;
+        public int TotalPestsRemoved { get; set; } = 0;
+        public int PerfectCareStreak { get; set; } = 0;
+        
+        // Time and aging
+        public int Age { get; private set; } = 0;
+        public DateTime CreationDate { get; private set; }
+        public DateTime InGameTime { get; private set; }
+        public double TimeMultiplier { get; private set; } = 1.0;
+        
+        // Growth stage
+        public GrowthStage CurrentStage { get; private set; } = GrowthStage.Seedling;
 
-        // Development stage
-        public GrowthStage CurrentStage { get; set; }
-        public int StageProgress { get; set; } // Progress within current stage (0-100)
-
+        // Visual attributes
+        public BonsaiStyle Style { get; set; } = BonsaiStyle.FormalUpright;
+        public int TreeSeed { get; private set; }
+        
         // Care history
-        public DateTime LastWatered { get; set; }
-        public DateTime LastFed { get; set; }
-        public DateTime LastPruned { get; set; }
-        public DateTime LastRepotted { get; set; }
-
-        // Evolution path and features
-        public BonsaiStyle Style { get; set; }
-        public List<string> Traits { get; set; }
-        public List<CareAction> CareHistory { get; set; }
-        public bool IsSick { get; set; }
-        public bool IsDead { get; set; }
-
-        // Misc
-        public int TreeSeed { get; set; }  // For consistent tree generation
-        public List<string> Likes { get; set; }
-        public List<string> Dislikes { get; set; }
+        public List<CareAction> CareHistory { get; private set; } = new List<CareAction>();
         
-        // Notification system
-        [JsonIgnore]
-        public List<BonsaiNotification> ActiveNotifications { get; set; }
+        // Notifications
+        public List<BonsaiNotification> ActiveNotifications { get; private set; } = new List<BonsaiNotification>();
+        
+        // Status flags
+        public bool IsSick => Health < 30 || DiseaseLevel > 50;
+        public bool IsDead => Health <= 0;
+        public bool HasPests => PestInfestation > 30;
+        public bool HasDisease => DiseaseLevel > 30;
+        
+        // Environmental preferences (can be unique per bonsai)
+        public LightPreference LightNeeds { get; set; }
+        public WaterPreference WaterNeeds { get; set; }
+        public SoilPreference SoilNeeds { get; set; }
+        
+        // Season and weather system
+        public Season CurrentSeason { get; set; }
+        public Weather CurrentWeather { get; set; }
+        public DateTime LastSeasonChange { get; set; }
+        public DateTime LastWeatherChange { get; set; }
+        
+        // Stress and emotional state
+        public EmotionalState CurrentMood { get; set; }
+        public int MoodScore { get; set; } // -100 to 100, affects visual cues
+        
+        // Activity timing bonuses/penalties (Phase 3)
+        public bool MorningActivityBonus { get; set; }
+        public bool EveningActivityBonus { get; set; }
+        public bool NightActivityPenalty { get; set; }
+        
+        // Additional information about the bonsai's origin (Phase 3)
+        public bool IsFromBreeding { get; set; }
+        public Guid? ParentId1 { get; set; }
+        public Guid? ParentId2 { get; set; }
 
         #endregion
 
         #region Events
 
-        // Events for UI updates and notifications
+        // Notification of state changes
         public event EventHandler StatsChanged;
-        public event EventHandler<BonsaiNotification> NotificationTriggered;
-        public event EventHandler StageAdvanced;
+        public event EventHandler<NotificationEventArgs> NotificationTriggered;
+        public event EventHandler<StageAdvancedEventArgs> StageAdvanced;
 
         #endregion
 
+        // Random number generator
+        private Random random;
+        
         #region Constructors
 
-        public BonsaiPet()
+        /// <summary>
+        /// Create a new bonsai pet with a given name
+        /// </summary>
+        public BonsaiPet(string name, Random randomGenerator = null)
         {
-            // Default constructor for serialization
-            Traits = new List<string>();
-            CareHistory = new List<CareAction>();
-            ActiveNotifications = new List<BonsaiNotification>();
-            Likes = new List<string>();
-            Dislikes = new List<string>();
-        }
-
-        public BonsaiPet(string name, Random random)
-        {
-            // Create new bonsai pet
             Name = name;
-            Id = Guid.NewGuid();
-            BirthDate = DateTime.Now;
-            InGameTime = new DateTime(1, 1, 1, 8, 0, 0); // Start at 8 AM on day 1
-            TimeMultiplier = 1.0; // Default time speed (1 game hour = 1 real minute)
-
-            // Initialize stats
-            Health = 80 + random.NextDouble() * 20;
-            Happiness = 70 + random.NextDouble() * 30;
-            Hunger = 20 + random.NextDouble() * 20;
-            Growth = 0;
-            Hydration = 80 + random.NextDouble() * 20;
-            SoilQuality = 90 + random.NextDouble() * 10;
-            PruningQuality = 100;
-            Age = 0;
-
-            // Initialize stage
-            CurrentStage = GrowthStage.Seedling;
-            StageProgress = 0;
-
-            // Initialize care timestamps
-            LastWatered = DateTime.Now;
-            LastFed = DateTime.Now;
-            LastPruned = DateTime.Now;
-            LastRepotted = DateTime.Now;
-
-            // Initialize traits and history
-            Style = BonsaiStyle.FormalUpright;
-            Traits = new List<string>();
-            CareHistory = new List<CareAction>();
-            ActiveNotifications = new List<BonsaiNotification>();
+            CreationDate = DateTime.Now;
+            InGameTime = new DateTime(1, 1, 1, 0, 0, 0); // Start at midnight on day 1
             
-            // Initialize status flags
-            IsSick = false;
-            IsDead = false;
-
-            // Initialize tree generation seed
+            // Use provided random generator or create new one
+            random = randomGenerator ?? new Random();
+            
+            // Generate random seed for tree generation
             TreeSeed = random.Next();
-
-            // Generate random likes and dislikes
-            GenerateLikesAndDislikes(random);
+            
+            // Pick a random style
+            Style = (BonsaiStyle)random.Next(0, Enum.GetValues(typeof(BonsaiStyle)).Length);
+            
+            // Initialize activity tracking
+            LastActivity = DateTime.Now;
+            
+            // Initialize enhanced properties
+            InitializeEnhancedProperties(random);
         }
-
-        #endregion
-
-        #region Core Methods
+        
+        // Update constructor with enhanced properties
+        private void InitializeEnhancedProperties(Random random)
+        {
+            // Initial season and weather
+            CurrentSeason = DetermineSeason(DateTime.Now.Month);
+            CurrentWeather = GenerateRandomWeather(random, CurrentSeason);
+            LastSeasonChange = DateTime.Now;
+            LastWeatherChange = DateTime.Now;
+            
+            // Initialize pest and disease levels (low initially)
+            PestInfestation = random.Next(0, 10);
+            DiseaseLevel = random.Next(0, 5);
+            
+            // Initialize stress and mood (neutral)
+            StressLevel = 20 + random.Next(0, 10);
+            CurrentMood = DetermineMood();
+            MoodScore = 0;
+            
+            // Initialize activity tracking
+            ActivityScore = 70 + random.Next(0, 30);
+            
+            // Initialize environmental preferences (random for each bonsai)
+            LightNeeds = (LightPreference)random.Next(0, Enum.GetValues(typeof(LightPreference)).Length);
+            WaterNeeds = (WaterPreference)random.Next(0, Enum.GetValues(typeof(WaterPreference)).Length);
+            SoilNeeds = (SoilPreference)random.Next(0, Enum.GetValues(typeof(SoilPreference)).Length);
+        }
 
         /// <summary>
-        /// Updates the bonsai's state based on elapsed real time
+        /// Add a trait by name
+        /// </summary>
+        public void AddTrait(string traitName)
+        {
+            if (string.IsNullOrEmpty(traitName))
+                return;
+
+            if (!Traits.Any(t => t.Name.Equals(traitName, StringComparison.OrdinalIgnoreCase)))
+            {
+                Traits.Add(new BonsaiTrait(traitName));
+            }
+        }
+
+        /// <summary>
+        /// Add multiple traits by name
+        /// </summary>
+        public void AddTraits(IEnumerable<string> traitNames)
+        {
+            if (traitNames == null)
+                return;
+
+            foreach (var name in traitNames)
+            {
+                AddTrait(name);
+            }
+        }
+        #endregion
+
+        #region Update Methods
+
+        /// <summary>
+        /// Update the bonsai state based on elapsed time
         /// </summary>
         public void Update(TimeSpan elapsedTime)
         {
             if (IsDead) return;
 
-            // Calculate in-game time progression
-            double gameMinutesElapsed = elapsedTime.TotalMinutes * 60 * TimeMultiplier;
-            InGameTime = InGameTime.AddMinutes(gameMinutesElapsed);
-
-            // Calculate real-world days passed since last update for aging
+            // Convert real-world time to game time based on multiplier
+            TimeSpan gameTimeElapsed = TimeSpan.FromMinutes(elapsedTime.TotalMinutes * TimeMultiplier);
+            InGameTime = InGameTime.Add(gameTimeElapsed);
+            
+            // Calculate real-world days passed since last update
             double daysFraction = elapsedTime.TotalHours / 24;
             
-            // Update age if at least one in-game day has passed
-            if (InGameTime.Day > Age + 1)
-            {
-                int daysPassed = InGameTime.Day - (Age + 1);
-                Age += daysPassed;
-                
-                // Check for stage advancement based on age
-                CheckForStageAdvancement();
-            }
-
-            // Apply stat degradation
-            DegradeStats(daysFraction);
+            // Update age (in days)
+            Age = (int)(DateTime.Now - CreationDate).TotalDays;
             
-            // Update derived stats
-            UpdateDerivedStats();
+            // Decay stats naturally over time
+            UpdateStats(daysFraction);
             
-            // Check health conditions
+            // Check for life stage advancement
+            CheckForStageAdvancement();
+            
+            // Check for critical health conditions
             CheckHealthConditions();
             
-            // Generate notifications if needed
-            GenerateNotifications();
+            // Update season and weather
+            UpdateSeasonAndWeather();
             
-            // Raise stats changed event
-            OnStatsChanged();
+            // Update pest and disease levels
+            UpdatePestAndDisease(daysFraction);
+            
+            // Update stress level
+            UpdateStressLevel(daysFraction);
+            
+            // Update mood
+            UpdateMood();
+            
+            // Update activity score
+            UpdateActivityScore(elapsedTime);
+            
+            // Apply seasonal effects
+            ApplySeasonalEffects(daysFraction);
+            
+            // Apply weather effects
+            ApplyWeatherEffects(daysFraction);
+        }
+        
+        /// <summary>
+        /// Update the bonsai's stats based on time passing
+        /// </summary>
+        private void UpdateStats(double daysFraction)
+        {
+            if (daysFraction < 0.001) return;
+            
+            // Calculate stat changes per day
+            double hungerIncrease = 10.0 * daysFraction;
+            double happinessDecrease = 5.0 * daysFraction;
+            double hydrationDecrease = 15.0 * daysFraction;
+            double soilQualityDecrease = 2.0 * daysFraction;
+            double growthIncrease = 2.0 * daysFraction;
+            
+            // Apply stat changes
+            Hunger = Math.Min(100, Hunger + hungerIncrease);
+            Happiness = Math.Max(0, Happiness - happinessDecrease);
+            Hydration = Math.Max(0, Hydration - hydrationDecrease);
+            SoilQuality = Math.Max(0, SoilQuality - soilQualityDecrease);
+            
+            // Growth increases more if conditions are good
+            if (Health > 70 && Hunger < 50 && Hydration > 50 && SoilQuality > 60)
+            {
+                growthIncrease *= 1.5;
+            }
+            
+            // Apply growth increase based on current stage (growth slows as tree matures)
+            if (CurrentStage == GrowthStage.Seedling)
+            {
+                Growth += growthIncrease * 1.5;
+            }
+            else if (CurrentStage == GrowthStage.Sapling)
+            {
+                Growth += growthIncrease * 1.2;
+            }
+            else if (CurrentStage == GrowthStage.YoungTree)
+            {
+                Growth += growthIncrease;
+            }
+            else if (CurrentStage == GrowthStage.MatureTree)
+            {
+                Growth += growthIncrease * 0.5;
+            }
+            else if (CurrentStage == GrowthStage.ElderTree)
+            {
+                Growth += growthIncrease * 0.2;
+            }
+            
+            // Cap growth at 100
+            Growth = Math.Min(100, Growth);
+            
+            // Recalculate health based on other stats
+            UpdateHealth();
+        }
+        
+        /// <summary>
+        /// Update health based on other factors
+        /// </summary>
+        private void UpdateHealth()
+        {
+            // Start with base health value (assuming perfect conditions)
+            double targetHealth = 100;
+            
+            // Reduce health based on negative conditions
+            if (Hunger > 70) targetHealth -= (Hunger - 70) * 0.5;
+            if (Hydration < 30) targetHealth -= (30 - Hydration) * 0.5;
+            if (Hydration > 90) targetHealth -= (Hydration - 90) * 0.3; // Over-watering
+            if (SoilQuality < 40) targetHealth -= (40 - SoilQuality) * 0.3;
+            if (StressLevel > 60) targetHealth -= (StressLevel - 60) * 0.4;
+            if (PestInfestation > 50) targetHealth -= (PestInfestation - 50) * 0.5;
+            if (DiseaseLevel > 40) targetHealth -= (DiseaseLevel - 40) * 0.7;
+            if (PruningQuality < 30) targetHealth -= (30 - PruningQuality) * 0.2;
+            
+            // Health changes gradually rather than instantly
+            double healthChange = (targetHealth - Health) * 0.1;
+            Health = Math.Max(0, Math.Min(100, Health + healthChange));
+            
+            // Trigger events if health reaches critical levels
+            if (Health <= 20 && !HasNotificationOfType("LowHealth"))
+            {
+                AddNotification(new BonsaiNotification(
+                    "Critical Health",
+                    $"{Name} is in critical condition! Take immediate action to save your bonsai.",
+                    NotificationSeverity.Critical));
+            }
+            else if (Health <= 40 && !HasNotificationOfType("PoorHealth"))
+            {
+                AddNotification(new BonsaiNotification(
+                    "Poor Health",
+                    $"{Name} isn't doing well. Take better care of your bonsai.",
+                    NotificationSeverity.Warning));
+            }
         }
 
         /// <summary>
-        /// Handles watering the bonsai
+        /// Represents a trait that affects a bonsai's characteristics
+        /// </summary>
+        public class BonsaiTrait
+        {
+            /// <summary>
+            /// Unique identifier for the trait
+            /// </summary>
+            public string Id { get; set; }
+
+            /// <summary>
+            /// Display name of the trait
+            /// </summary>
+            public string Name { get; set; }
+
+            /// <summary>
+            /// Description of the trait's effects
+            /// </summary>
+            public string Description { get; set; }
+
+            /// <summary>
+            /// How rare this trait is (0-1)
+            /// </summary>
+            public double Rarity { get; set; }
+
+            /// <summary>
+            /// How the trait affects various stats (+/-)
+            /// </summary>
+            public Dictionary<string, double> StatModifiers { get; set; } = new Dictionary<string, double>();
+
+            /// <summary>
+            /// Whether this trait can be passed to offspring
+            /// </summary>
+            public bool IsHeritable { get; set; } = true;
+
+            /// <summary>
+            /// Create a new bonsai trait with detailed information
+            /// </summary>
+            public BonsaiTrait(string id, string name, string description, double rarity = 0.5)
+            {
+                Id = id;
+                Name = name;
+                Description = description;
+                Rarity = rarity;
+            }
+
+            /// <summary>
+            /// Create a new bonsai trait from just a name
+            /// </summary>
+            public BonsaiTrait(string name)
+            {
+                Id = name.ToLower().Replace(" ", "-");
+                Name = name;
+                Description = $"{name} trait";
+                Rarity = 0.5;
+            }
+
+            /// <summary>
+            /// Add a stat modifier to this trait
+            /// </summary>
+            public void AddModifier(string stat, double value)
+            {
+                StatModifiers[stat] = value;
+            }
+        }
+
+        /// <summary>
+        /// Check if bonsai has advanced to the next growth stage
+        /// </summary>
+        private void CheckForStageAdvancement()
+        {
+            GrowthStage oldStage = CurrentStage;
+            
+            // Determine new stage based on growth
+            if (Growth >= 98 && CurrentStage == GrowthStage.MatureTree)
+            {
+                CurrentStage = GrowthStage.ElderTree;
+            }
+            else if (Growth >= 75 && CurrentStage == GrowthStage.YoungTree)
+            {
+                CurrentStage = GrowthStage.MatureTree;
+            }
+            else if (Growth >= 50 && CurrentStage == GrowthStage.Sapling)
+            {
+                CurrentStage = GrowthStage.YoungTree;
+            }
+            else if (Growth >= 25 && CurrentStage == GrowthStage.Seedling)
+            {
+                CurrentStage = GrowthStage.Sapling;
+            }
+            
+            // Notify if stage has advanced
+            if (CurrentStage != oldStage)
+            {
+                // Trigger stage advancement event
+                StageAdvanced?.Invoke(this, new StageAdvancedEventArgs(oldStage, CurrentStage));
+                
+                // Add notification
+                AddNotification(new BonsaiNotification(
+                    "Stage Advanced!",
+                    $"{Name} has grown to the {CurrentStage} stage!",
+                    NotificationSeverity.Achievement));
+            }
+        }
+        
+        /// <summary>
+        /// Check for critical health conditions
+        /// </summary>
+        private void CheckHealthConditions()
+        {
+            if (Health <= 0 && !IsDead)
+            {
+                // Bonsai has died
+                AddNotification(new BonsaiNotification(
+                    "Bonsai Died",
+                    $"{Name} has died. Take better care of your next bonsai.",
+                    NotificationSeverity.Critical));
+            }
+            else if (IsSick && !HasNotificationOfType("Sick"))
+            {
+                // Bonsai is sick
+                AddNotification(new BonsaiNotification(
+                    "Bonsai Sick",
+                    $"{Name} is sick and needs medical attention.",
+                    NotificationSeverity.Alert));
+            }
+        }
+        
+        /// <summary>
+        /// Updates season based on real-world time and generates appropriate weather
+        /// </summary>
+        private void UpdateSeasonAndWeather()
+        {
+            // Check if it's time for a season change (every 3 real months)
+            DateTime now = DateTime.Now;
+            Season newSeason = DetermineSeason(now.Month);
+            
+            if (newSeason != CurrentSeason)
+            {
+                CurrentSeason = newSeason;
+                LastSeasonChange = now;
+                
+                // Notify about season change
+                AddNotification(new BonsaiNotification(
+                    "Season Changed", 
+                    $"The season has changed to {CurrentSeason}. Your bonsai's needs will change accordingly.",
+                    NotificationSeverity.Information));
+            }
+            
+            // Update weather every 1-3 days (in-game time)
+            TimeSpan weatherAge = now - LastWeatherChange;
+            if (weatherAge.TotalDays > 2 || random.NextDouble() < 0.15) // 15% chance per update to change
+            {
+                Weather oldWeather = CurrentWeather;
+                CurrentWeather = GenerateRandomWeather(random, CurrentSeason);
+                LastWeatherChange = now;
+                
+                // Only notify on significant weather changes
+                if (IsSignificantWeatherChange(oldWeather, CurrentWeather))
+                {
+                    AddNotification(new BonsaiNotification(
+                        "Weather Changed", 
+                        $"The weather has changed to {CurrentWeather}. This will affect your bonsai's needs.",
+                        NotificationSeverity.Information));
+                }
+            }
+        }
+        
+        /// <summary>
+        /// Updates pest infestation and disease levels based on care conditions
+        /// </summary>
+        private void UpdatePestAndDisease(double daysFraction)
+        {
+            if (daysFraction < 0.001) return;
+            
+            // Base pest growth rates (per day)
+            double baseInfestationRate = 0.5;
+            double baseDiseaseRate = 0.3;
+            
+            // Factors that increase pest infestation
+            if (Hydration > 90) baseInfestationRate += 1.0; // Too wet
+            if (SoilQuality < 40) baseInfestationRate += 1.0; // Poor soil
+            if (CurrentSeason == Season.Summer) baseInfestationRate += 0.5; // Summer increases pests
+            if (CurrentWeather == Weather.Humid) baseInfestationRate += 1.0; // Humid weather
+            if (MoodScore < -30) baseInfestationRate += 0.5; // Unhappy plants attract pests
+            
+            // Factors that increase disease
+            if (Hydration > 95 || Hydration < 20) baseDiseaseRate += 1.0; // Extreme hydration
+            if (SoilQuality < 30) baseDiseaseRate += 1.0; // Poor soil increases disease
+            if (HasPests) baseDiseaseRate += 0.5; // Pests can cause disease
+            if (CurrentWeather == Weather.Rain && CurrentSeason != Season.Spring) baseDiseaseRate += 0.5; // Rain outside spring
+            if (Health < 40) baseDiseaseRate += 1.0; // Low health increases disease risk
+            
+            // Apply the rates
+            PestInfestation = Math.Min(100, PestInfestation + (baseInfestationRate * daysFraction));
+            DiseaseLevel = Math.Min(100, DiseaseLevel + (baseDiseaseRate * daysFraction));
+            
+            // Critical conditions check
+            if (PestInfestation > 60 && !HasNotificationOfType("PestInfestation"))
+            {
+                AddNotification(new BonsaiNotification(
+                    "Pest Infestation", 
+                    $"{Name} is suffering from pest infestation! Use the pest removal tools immediately.",
+                    NotificationSeverity.Alert));
+            }
+            
+            if (DiseaseLevel > 60 && !HasNotificationOfType("DiseaseDetected"))
+            {
+                AddNotification(new BonsaiNotification(
+                    "Disease Detected", 
+                    $"{Name} is showing signs of disease! Apply treatment immediately.",
+                    NotificationSeverity.Alert));
+            }
+            
+            // Pests and disease affect health
+            if (HasPests || HasDisease)
+            {
+                double healthReduction = ((PestInfestation * 0.1) + (DiseaseLevel * 0.1)) * daysFraction;
+                Health = Math.Max(0, Health - healthReduction);
+            }
+        }
+        
+        /// <summary>
+        /// Updates the bonsai's stress level based on care and environmental factors
+        /// </summary>
+        private void UpdateStressLevel(double daysFraction)
+        {
+            if (daysFraction < 0.001) return;
+            
+            // Calculate base stress decay (stress naturally decreases slightly over time)
+            double stressChange = -2.0 * daysFraction;
+            
+            // Factors that increase stress
+            if (Hydration < 20 || Hydration > 90) stressChange += 5.0 * daysFraction;
+            if (Hunger > 80) stressChange += 4.0 * daysFraction;
+            if (HasPests) stressChange += 3.0 * daysFraction;
+            if (HasDisease) stressChange += 5.0 * daysFraction;
+            if (CurrentWeather == Weather.Storm) stressChange += 3.0 * daysFraction;
+            if (DaysSinceLastActivity() > 5) stressChange += 2.0 * daysFraction;
+            
+            // Apply stress change
+            StressLevel = Math.Min(100, Math.Max(0, StressLevel + stressChange));
+            
+            // High stress notification
+            if (StressLevel > 70 && !HasNotificationOfType("HighStress"))
+            {
+                AddNotification(new BonsaiNotification(
+                    "High Stress", 
+                    $"{Name} is very stressed! Make sure it's getting appropriate care.",
+                    NotificationSeverity.Warning));
+            }
+        }
+        
+        /// <summary>
+        /// Updates the bonsai's mood based on various factors
+        /// </summary>
+        private void UpdateMood()
+        {
+            // Calculate base mood score
+            int newMoodScore = 0;
+            
+            // Physical factors
+            newMoodScore += (int)((100 - Hunger) * 0.3);  // Less hunger = better mood
+            newMoodScore += (int)((100 - StressLevel) * 0.3); // Less stress = better mood
+            newMoodScore += (int)(Happiness * 0.3); // Direct happiness impact
+            
+            // Environmental factors
+            if (IsWeatherPreferred()) newMoodScore += 10;
+            if (IsSeasonPreferred()) newMoodScore += 10;
+            
+            // Care factors
+            if (PerfectCareStreak > 3) newMoodScore += 10;
+            if (DaysSinceLastActivity() < 2) newMoodScore += 5;
+            
+            // Negative factors
+            if (HasPests) newMoodScore -= 20;
+            if (HasDisease) newMoodScore -= 30;
+            if (Health < 40) newMoodScore -= 15;
+            
+            // Clamp to valid range
+            MoodScore = Math.Max(-100, Math.Min(100, newMoodScore));
+            
+            // Update emotional state
+            CurrentMood = DetermineMood();
+        }
+        
+        /// <summary>
+        /// Updates activity score based on recent interactions
+        /// </summary>
+        private void UpdateActivityScore(TimeSpan elapsed)
+        {
+            // Activity naturally decays over time
+            double activityDecay = elapsed.TotalHours * 2.0;
+            ActivityScore = Math.Max(0, ActivityScore - activityDecay);
+        }
+        
+        /// <summary>
+        /// Apply seasonal effects to the bonsai's stats
+        /// </summary>
+        private void ApplySeasonalEffects(double daysFraction)
+        {
+            if (daysFraction < 0.001) return;
+            
+            switch (CurrentSeason)
+            {
+                case Season.Spring:
+                    // Spring is good for growth
+                    Growth += 0.2 * daysFraction;
+                    Hydration -= 1.0 * daysFraction; // Moderate water needs
+                    break;
+                    
+                case Season.Summer:
+                    // Summer increases water needs
+                    Hydration -= 2.5 * daysFraction;
+                    // Increased risk of stress in summer
+                    StressLevel += 1.0 * daysFraction;
+                    break;
+                    
+                case Season.Autumn:
+                    // Autumn slows growth
+                    Growth += 0.1 * daysFraction;
+                    // Natural pruning happens (leaves falling)
+                    PruningQuality += 0.5 * daysFraction;
+                    break;
+                    
+                case Season.Winter:
+                    // Winter is dormant period
+                    Growth -= 0.1 * daysFraction; // Can actually decrease slightly
+                    Hydration -= 0.5 * daysFraction; // Low water needs
+                    Hunger -= 0.5 * daysFraction; // Low feeding needs
+                    break;
+            }
+            
+            // Ensure values stay in valid range
+            Growth = Math.Max(0, Math.Min(100, Growth));
+            Hydration = Math.Max(0, Math.Min(100, Hydration));
+            Hunger = Math.Max(0, Math.Min(100, Hunger));
+        }
+        
+        /// <summary>
+        /// Apply weather effects to the bonsai's stats
+        /// </summary>
+        private void ApplyWeatherEffects(double daysFraction)
+        {
+            if (daysFraction < 0.001) return;
+            
+            switch (CurrentWeather)
+            {
+                case Weather.Sunny:
+                    // Sunny weather increases happiness but decreases hydration
+                    Happiness += 1.0 * daysFraction;
+                    Hydration -= 1.5 * daysFraction;
+                    break;
+                    
+                case Weather.Cloudy:
+                    // Cloudy weather is neutral
+                    break;
+                    
+                case Weather.Rain:
+                    // Rain naturally waters the tree
+                    Hydration += 2.0 * daysFraction;
+                    // But can make it a bit unhappy
+                    Happiness -= 0.5 * daysFraction;
+                    break;
+                    
+                case Weather.Humid:
+                    // Humidity slows water loss but increases pest risk
+                    Hydration -= 0.5 * daysFraction;
+                    PestInfestation += 0.3 * daysFraction;
+                    break;
+                    
+                case Weather.Wind:
+                    // Wind causes stress and increases water needs
+                    StressLevel += 1.0 * daysFraction;
+                    Hydration -= 1.0 * daysFraction;
+                    break;
+                    
+                case Weather.Storm:
+                    // Storms are stressful but provide water
+                    StressLevel += 3.0 * daysFraction;
+                    Hydration += 3.0 * daysFraction;
+                    Happiness -= 2.0 * daysFraction;
+                    break;
+                    
+                case Weather.Snow:
+                    // Snow is stressful and cold
+                    StressLevel += 2.0 * daysFraction;
+                    Growth -= 0.2 * daysFraction;
+                    // But reduces pest activity
+                    PestInfestation -= 1.0 * daysFraction;
+                    break;
+            }
+            
+            // Ensure values stay in valid range
+            Happiness = Math.Max(0, Math.Min(100, Happiness));
+            Hydration = Math.Max(0, Math.Min(100, Hydration));
+            StressLevel = Math.Max(0, Math.Min(100, StressLevel));
+            PestInfestation = Math.Max(0, Math.Min(100, PestInfestation));
+            Growth = Math.Max(0, Math.Min(100, Growth));
+        }
+
+        #endregion
+
+        #region Care Actions
+
+        /// <summary>
+        /// Water the bonsai
         /// </summary>
         public void Water()
         {
             if (IsDead) return;
-
-            // Calculate time since last watering
-            TimeSpan timeSinceLastWatering = DateTime.Now - LastWatered;
-
-            // Base increase in hydration
-            double hydrationIncrease = 30.0;
-
-            // Bonus for optimal watering interval (between 1-3 days)
-            double daysSinceWatering = timeSinceLastWatering.TotalDays;
-            if (daysSinceWatering >= 1 && daysSinceWatering <= 3)
-            {
-                hydrationIncrease += 10.0;
-            }
-
-            // Penalties for over or under watering
-            if (daysSinceWatering < 0.5)
-            {
-                // Overwatering penalty
-                hydrationIncrease = 5.0;
-                SoilQuality -= 5.0;
-                Health -= 2.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Overwatering", 
-                    "You've watered your bonsai too soon! Be careful not to overwater.", 
-                    NotificationSeverity.Warning));
-            }
-            else if (daysSinceWatering > 5)
-            {
-                // Severe underwatering
-                Health -= 5.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Severe Underwatering", 
-                    "Your bonsai was very thirsty! Try to water more regularly.", 
-                    NotificationSeverity.Warning));
-            }
-
-            // Apply hydration increase
-            Hydration = Math.Min(100, Hydration + hydrationIncrease);
             
-            // Update hunger and happiness
-            Hunger = Math.Max(0, Hunger - 10.0);
+            // Store initial values for comparison
+            double initialHydration = Hydration;
+            
+            // Calculate base watering amount
+            double wateringAmount = 30.0;
+            
+            // Apply time of day bonus/penalty if available
+            wateringAmount *= GetTimeOfDayBonusFactor();
+            
+            // Apply the watering amount
+            Hydration = Math.Min(100, Hydration + wateringAmount);
+            
+            // Reduce hunger slightly as water provides some nutrients
+            Hunger = Math.Max(0, Hunger - 5.0);
+            
+            // Happiness increases slightly with watering
             Happiness = Math.Min(100, Happiness + 5.0);
             
-            // Update last watered timestamp
-            LastWatered = DateTime.Now;
+            // Track the watering
+            TotalWaterings++;
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 10);
             
             // Add to care history
             CareHistory.Add(new CareAction 
@@ -234,73 +774,111 @@ namespace BonsaiGotchi
                 ActionType = CareActionType.Watering,
                 Timestamp = DateTime.Now,
                 GameTimestamp = InGameTime,
-                EffectDescription = $"Hydration +{hydrationIncrease:0.0}"
+                EffectDescription = $"Hydration +{Hydration - initialHydration:0.0}"
             });
             
-            // Update stats and trigger notification
+            // Check if watering matches the bonsai's preference
+            if (WaterNeeds == WaterPreference.Low && (Hydration - initialHydration) > 20)
+            {
+                // Doesn't like too much water
+                AddNotification(new BonsaiNotification(
+                    "Water Preference", 
+                    $"{Name} prefers less water. Consider watering less next time.",
+                    NotificationSeverity.Information));
+            }
+            else if (WaterNeeds == WaterPreference.High && (Hydration - initialHydration) < 15)
+            {
+                // Wants more water
+                AddNotification(new BonsaiNotification(
+                    "Water Preference", 
+                    $"{Name} loves water and could use more next time!",
+                    NotificationSeverity.Information));
+            }
+            
+            // Check for over-watering
+            if (Hydration > 90 && initialHydration > 70)
+            {
+                // Tree is being over-watered
+                StressLevel = Math.Min(100, StressLevel + 10);
+                AddNotification(new BonsaiNotification(
+                    "Over-Watering Warning",
+                    $"{Name} is getting too much water. Let the soil dry out before watering again.",
+                    NotificationSeverity.Warning));
+            }
+            
+            // Update stats and check for perfect care streak
+            UpdatePerfectCareStreak();
             OnStatsChanged();
-            AddNotification(new BonsaiNotification(
-                "Watering", 
-                $"{Name} enjoyed the water!", 
-                NotificationSeverity.Information));
         }
         
         /// <summary>
-        /// Handles feeding (fertilizing) the bonsai
+        /// Enhanced water method with time of day effects
+        /// </summary>
+        public void EnhancedWater()
+        {
+            if (IsDead) return;
+            
+            // Store initial hydration for comparison
+            double initialHydration = Hydration;
+            
+            // Call base watering method
+            Water();
+            
+            // Apply time of day bonus or penalty
+            double hydrationChange = Hydration - initialHydration;
+            double adjustedChange = hydrationChange * GetTimeOfDayBonusFactor() - hydrationChange;
+            
+            Hydration = Math.Max(0, Math.Min(100, Hydration + adjustedChange));
+            
+            // Add notification if there was a significant bonus or penalty
+            if (GetTimeOfDayBonusFactor() > 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Watering Bonus", 
+                    $"Watering at this time of day is especially effective!",
+                    NotificationSeverity.Information));
+            }
+            else if (GetTimeOfDayBonusFactor() < 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Watering Penalty", 
+                    $"Watering at night is less effective. Try watering in the morning for best results.",
+                    NotificationSeverity.Warning));
+            }
+        }
+
+        /// <summary>
+        /// Feed the bonsai
         /// </summary>
         public void Feed()
         {
             if (IsDead) return;
-
-            // Calculate time since last feeding
-            TimeSpan timeSinceLastFeeding = DateTime.Now - LastFed;
-
-            // Base decrease in hunger
-            double hungerDecrease = 40.0;
-            double happinessIncrease = 10.0;
-            double growthIncrease = 5.0;
             
-            // Bonus for optimal feeding interval (between 3-7 days)
-            double daysSinceFeeding = timeSinceLastFeeding.TotalDays;
-            if (daysSinceFeeding >= 3 && daysSinceFeeding <= 7)
-            {
-                hungerDecrease += 10.0;
-                happinessIncrease += 5.0;
-                growthIncrease += 2.5;
-            }
-
-            // Penalties for over or under feeding
-            if (daysSinceFeeding < 1.5)
-            {
-                // Overfeeding penalty
-                hungerDecrease = 10.0;
-                SoilQuality -= 10.0;
-                Health -= 5.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Overfeeding", 
-                    "You've fed your bonsai too soon! The soil is becoming nutrient-heavy.", 
-                    NotificationSeverity.Warning));
-            }
-            else if (daysSinceFeeding > 14)
-            {
-                // Severe underfeeding
-                Health -= 3.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Undernourished", 
-                    "Your bonsai was very hungry! Regular feeding is important.", 
-                    NotificationSeverity.Warning));
-            }
-
-            // Apply stat changes
-            Hunger = Math.Max(0, Hunger - hungerDecrease);
-            Happiness = Math.Min(100, Happiness + happinessIncrease);
-            Growth = Math.Min(100, Growth + growthIncrease);
-            SoilQuality = Math.Min(100, SoilQuality + 5.0);
+            // Store initial values
+            double initialHunger = Hunger;
             
-            // Update last fed timestamp
-            LastFed = DateTime.Now;
+            // Calculate base feeding amount
+            double feedingAmount = 25.0;
+            
+            // Apply time of day bonus/penalty if available
+            feedingAmount *= GetTimeOfDayBonusFactor();
+            
+            // Apply the feeding
+            Hunger = Math.Max(0, Hunger - feedingAmount);
+            
+            // Improve soil quality
+            SoilQuality = Math.Min(100, SoilQuality + 10);
+            
+            // Happiness increases
+            Happiness = Math.Min(100, Happiness + 8);
+            
+            // Growth gets a small boost
+            Growth = Math.Min(100, Growth + 1);
+            
+            // Track the feeding
+            TotalFeedings++;
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 15);
             
             // Add to care history
             CareHistory.Add(new CareAction 
@@ -308,60 +886,81 @@ namespace BonsaiGotchi
                 ActionType = CareActionType.Feeding,
                 Timestamp = DateTime.Now,
                 GameTimestamp = InGameTime,
-                EffectDescription = $"Hunger -{hungerDecrease:0.0}, Growth +{growthIncrease:0.0}"
+                EffectDescription = $"Hunger -{initialHunger - Hunger:0.0}, Soil +10"
             });
             
-            // Update stats and trigger notification
+            // Update stats
+            UpdatePerfectCareStreak();
             OnStatsChanged();
-            AddNotification(new BonsaiNotification(
-                "Feeding", 
-                $"{Name} absorbed the nutrients!", 
-                NotificationSeverity.Information));
         }
         
         /// <summary>
-        /// Handles pruning the bonsai
+        /// Enhanced feeding method that considers time of day
+        /// </summary>
+        public void EnhancedFeed()
+        {
+            if (IsDead) return;
+            
+            double bonusFactor = GetTimeOfDayBonusFactor();
+            
+            // Store initial values for comparison
+            double initialHunger = Hunger;
+            
+            // Call base feeding method
+            Feed();
+            
+            // Apply time of day bonus or penalty
+            double hungerChange = initialHunger - Hunger; // Hunger decreases when feeding
+            double adjustedChange = hungerChange * bonusFactor - hungerChange;
+            
+            Hunger = Math.Max(0, Math.Min(100, Hunger - adjustedChange));
+            
+            // Add notification if there was a significant bonus or penalty
+            if (bonusFactor > 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Feeding Bonus", 
+                    $"Feeding at this time of day is especially effective!",
+                    NotificationSeverity.Information));
+            }
+            else if (bonusFactor < 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Feeding Penalty", 
+                    $"Feeding at night is less effective. Try feeding during the day for best results.",
+                    NotificationSeverity.Warning));
+            }
+        }
+        
+        /// <summary>
+        /// Prune the bonsai
         /// </summary>
         public void Prune()
         {
             if (IsDead) return;
-
-            // Calculate time since last pruning
-            TimeSpan timeSinceLastPruning = DateTime.Now - LastPruned;
-
-            // Base effects
-            double pruningQualityIncrease = 30.0;
-            double happinessChange = -5.0;  // Slight unhappiness from pruning
             
-            // Bonus for optimal pruning interval (between 14-30 days)
-            double daysSincePruning = timeSinceLastPruning.TotalDays;
-            if (daysSincePruning >= 14 && daysSincePruning <= 30)
-            {
-                pruningQualityIncrease += 20.0;
-                happinessChange = 5.0;  // Actually happy if timed right
-                Growth += 7.5;  // Promotes healthy growth
-            }
-
-            // Penalties for over-pruning
-            if (daysSincePruning < 7)
-            {
-                // Over-pruning penalty
-                pruningQualityIncrease = 5.0;
-                Health -= 5.0;
-                happinessChange = -15.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Over-pruning", 
-                    "You've pruned your bonsai too soon! This is stressful for the tree.", 
-                    NotificationSeverity.Warning));
-            }
-
-            // Apply stat changes
-            PruningQuality = Math.Min(100, PruningQuality + pruningQualityIncrease);
-            Happiness = Math.Max(0, Math.Min(100, Happiness + happinessChange));
+            // Store initial values
+            double initialPruningQuality = PruningQuality;
             
-            // Update last pruned timestamp
-            LastPruned = DateTime.Now;
+            // Calculate base pruning amount
+            double pruningAmount = 35.0;
+            
+            // Apply time of day bonus/penalty if available
+            pruningAmount *= GetTimeOfDayBonusFactor();
+            
+            // Apply the pruning
+            PruningQuality = Math.Min(100, PruningQuality + pruningAmount);
+            
+            // Reduces stress slightly
+            StressLevel = Math.Max(0, StressLevel - 5);
+            
+            // Improves appearance and happiness
+            Happiness = Math.Min(100, Happiness + 10);
+            
+            // Track the pruning
+            TotalPrunings++;
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 20);
             
             // Add to care history
             CareHistory.Add(new CareAction 
@@ -369,61 +968,78 @@ namespace BonsaiGotchi
                 ActionType = CareActionType.Pruning,
                 Timestamp = DateTime.Now,
                 GameTimestamp = InGameTime,
-                EffectDescription = $"Pruning Quality +{pruningQualityIncrease:0.0}"
+                EffectDescription = $"Pruning +{PruningQuality - initialPruningQuality:0.0}, Stress -5"
             });
             
-            // Update stats and trigger notification
+            // Update stats
+            UpdatePerfectCareStreak();
             OnStatsChanged();
-            AddNotification(new BonsaiNotification(
-                "Pruning", 
-                $"{Name} has been shaped through pruning!", 
-                NotificationSeverity.Information));
         }
         
         /// <summary>
-        /// Handles repotting the bonsai
+        /// Enhanced pruning method that considers time of day
+        /// </summary>
+        public void EnhancedPrune()
+        {
+            if (IsDead) return;
+            
+            double bonusFactor = GetTimeOfDayBonusFactor();
+            
+            // Store initial values for comparison
+            double initialPruningQuality = PruningQuality;
+            
+            // Call base pruning method
+            Prune();
+            
+            // Apply time of day bonus or penalty
+            double pruningChange = PruningQuality - initialPruningQuality;
+            double adjustedChange = pruningChange * bonusFactor - pruningChange;
+            
+            PruningQuality = Math.Max(0, Math.Min(100, PruningQuality + adjustedChange));
+            
+            // Add notification if there was a significant bonus or penalty
+            if (bonusFactor > 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Pruning Bonus", 
+                    $"Pruning at this time of day is especially effective!",
+                    NotificationSeverity.Information));
+            }
+            else if (bonusFactor < 1.0)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Pruning Penalty", 
+                    $"Pruning at night is less effective. Try pruning in the evening for best results.",
+                    NotificationSeverity.Warning));
+            }
+        }
+        
+        /// <summary>
+        /// Repot the bonsai
         /// </summary>
         public void Repot()
         {
             if (IsDead) return;
-
-            // Calculate time since last repotting
-            TimeSpan timeSinceLastRepotting = DateTime.Now - LastRepotted;
-
-            // Base effects
-            double soilQualityIncrease = 50.0;
-            double happinessChange = -10.0;  // Stress from repotting
-            double healthChange = -5.0;  // Temporary shock
             
-            // Bonus for optimal repotting interval (between 180-365 days)
-            double daysSinceRepotting = timeSinceLastRepotting.TotalDays;
-            if (daysSinceRepotting >= 180)
-            {
-                soilQualityIncrease += 30.0;
-                healthChange = 5.0;  // Long-term health benefit if timed right
-            }
-
-            // Penalties for over-repotting
-            if (daysSinceRepotting < 90)
-            {
-                // Over-repotting penalty
-                soilQualityIncrease = 20.0;
-                healthChange = -15.0;
-                happinessChange = -20.0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Frequent Repotting", 
-                    "You've repotted your bonsai too soon! This causes significant stress.", 
-                    NotificationSeverity.Warning));
-            }
-
-            // Apply stat changes
-            SoilQuality = Math.Min(100, soilQualityIncrease);
-            Happiness = Math.Max(0, Math.Min(100, Happiness + happinessChange));
-            Health = Math.Max(0, Math.Min(100, Health + healthChange));
+            // Repotting causes temporary stress but improves soil quality
+            StressLevel = Math.Min(100, StressLevel + 20);
             
-            // Update last repotted timestamp
-            LastRepotted = DateTime.Now;
+            // Restore soil quality
+            SoilQuality = 100;
+            
+            // Reset pest infestation in soil
+            PestInfestation = Math.Max(0, PestInfestation - 40);
+            
+            // Reset disease related to soil
+            DiseaseLevel = Math.Max(0, DiseaseLevel - 25);
+            
+            // Small growth boost
+            Growth = Math.Min(100, Growth + 5);
+            
+            // Track the repotting
+            TotalRepottings++;
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 30);
             
             // Add to care history
             CareHistory.Add(new CareAction 
@@ -431,29 +1047,48 @@ namespace BonsaiGotchi
                 ActionType = CareActionType.Repotting,
                 Timestamp = DateTime.Now,
                 GameTimestamp = InGameTime,
-                EffectDescription = $"Soil Quality +{soilQualityIncrease:0.0}, Health {healthChange:+0.0;-0.0}"
+                EffectDescription = "Soil Quality restored to 100%, +20 Stress temporarily"
             });
             
-            // Update stats and trigger notification
-            OnStatsChanged();
+            // Add notification
             AddNotification(new BonsaiNotification(
-                "Repotting", 
-                $"{Name} has been moved to fresh soil!", 
+                "Repotting Complete",
+                $"{Name} has been repotted with fresh soil. It will be stressed for a while but will recover.",
                 NotificationSeverity.Information));
+            
+            // Update stats
+            UpdatePerfectCareStreak();
+            OnStatsChanged();
         }
         
         /// <summary>
-        /// Handles playing a mini-game with the bonsai
+        /// Play with the bonsai to increase happiness
         /// </summary>
-        public void Play(double gameScore)
+        public void Play()
+        {
+            Play(100.0); // Default full play session
+        }
+        
+        /// <summary>
+        /// Play with the bonsai with a specific effectiveness
+        /// </summary>
+        /// <param name="effectiveness">How effective the play is (0-100)</param>
+        public void Play(double effectiveness)
         {
             if (IsDead) return;
-
-            // Scale happiness increase based on game score (0-100)
-            double happinessIncrease = gameScore * 0.3;
             
-            // Apply stat changes
+            // Calculate happiness increase based on effectiveness
+            double happinessIncrease = 20.0 * (effectiveness / 100.0);
+            
+            // Apply happiness increase
             Happiness = Math.Min(100, Happiness + happinessIncrease);
+            
+            // Decreases stress
+            StressLevel = Math.Max(0, StressLevel - (10.0 * (effectiveness / 100.0)));
+            
+            // Track the activity
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 15);
             
             // Add to care history
             CareHistory.Add(new CareAction 
@@ -461,23 +1096,366 @@ namespace BonsaiGotchi
                 ActionType = CareActionType.Playing,
                 Timestamp = DateTime.Now,
                 GameTimestamp = InGameTime,
-                EffectDescription = $"Happiness +{happinessIncrease:0.0}"
+                EffectDescription = $"Happiness +{happinessIncrease:0.0}, Stress reduced"
+            });
+            
+            // Update stats
+            UpdatePerfectCareStreak();
+            OnStatsChanged();
+        }
+        
+        /// <summary>
+        /// Removes pests from the bonsai
+        /// </summary>
+        public void RemovePests(double effectiveness)
+        {
+            if (IsDead) return;
+            
+            // Base pest reduction
+            double pestReduction = 30.0 * (effectiveness / 100.0);
+            
+            // Apply the reduction
+            double initialPestLevel = PestInfestation;
+            PestInfestation = Math.Max(0, PestInfestation - pestReduction);
+            
+            // Small impact on happiness (doesn't like the treatment but benefits)
+            Happiness += 5.0;
+            
+            // Small stress from the treatment
+            StressLevel += 10.0;
+            
+            // Track the care
+            TotalPestsRemoved++;
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 15);
+            
+            // Add to care history
+            CareHistory.Add(new CareAction 
+            { 
+                ActionType = CareActionType.PestRemoval,
+                Timestamp = DateTime.Now,
+                GameTimestamp = InGameTime,
+                EffectDescription = $"Pest Infestation -{pestReduction:0.0}%"
             });
             
             // Update stats and trigger notification
             OnStatsChanged();
+            
+            // Different notification based on effectiveness
+            if (effectiveness > 75)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Pests Removed", 
+                    $"You expertly removed the pests from {Name}!",
+                    NotificationSeverity.Achievement));
+            }
+            else
+            {
+                AddNotification(new BonsaiNotification(
+                    "Pests Treated", 
+                    $"You treated {Name} for pests. Some remain but the situation is improving.",
+                    NotificationSeverity.Information));
+            }
+        }
+        
+        /// <summary>
+        /// Treats disease on the bonsai
+        /// </summary>
+        public void TreatDisease(double effectiveness)
+        {
+            if (IsDead) return;
+            
+            // Base disease reduction
+            double diseaseReduction = 40.0 * (effectiveness / 100.0);
+            
+            // Apply the reduction
+            double initialDiseaseLevel = DiseaseLevel;
+            DiseaseLevel = Math.Max(0, DiseaseLevel - diseaseReduction);
+            
+            // Small impact on happiness (doesn't like the treatment but benefits)
+            Happiness += 5.0;
+            
+            // Moderate stress from the treatment
+            StressLevel += 15.0;
+            
+            // May impact health temporarily
+            Health -= 5.0;
+            
+            // Track the care
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 20);
+            
+            // Add to care history
+            CareHistory.Add(new CareAction 
+            { 
+                ActionType = CareActionType.Medicine,
+                Timestamp = DateTime.Now,
+                GameTimestamp = InGameTime,
+                EffectDescription = $"Disease -{diseaseReduction:0.0}%"
+            });
+            
+            // Update stats and trigger notification
+            OnStatsChanged();
+            
+            // Different notification based on effectiveness
+            if (effectiveness > 75)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Disease Treated", 
+                    $"You successfully treated {Name}'s disease! It should recover fully soon.",
+                    NotificationSeverity.Achievement));
+            }
+            else
+            {
+                AddNotification(new BonsaiNotification(
+                    "Disease Treatment Started", 
+                    $"You've begun treating {Name}'s disease. Continue treatment for best results.",
+                    NotificationSeverity.Information));
+            }
+        }
+        
+        /// <summary>
+        /// Enhanced water method with temperature adjustment
+        /// </summary>
+        public void WaterWithTemperature(WaterTemperature temperature)
+        {
+            if (IsDead) return;
+            
+            // Store initial values for comparison
+            double initialHydration = Hydration;
+            
+            // Call base watering method
+            Water();
+            
+            // Apply temperature effects
+            switch (temperature)
+            {
+                case WaterTemperature.Cold:
+                    // Cold water is shocking in warm seasons, good in hot seasons
+                    if (CurrentSeason == Season.Summer)
+                    {
+                        StressLevel -= 10.0;
+                        Happiness += 5.0;
+                    }
+                    else if (CurrentSeason == Season.Winter)
+                    {
+                        StressLevel += 15.0;
+                        Happiness -= 10.0;
+                        Health -= 5.0;
+                    }
+                    break;
+                    
+                case WaterTemperature.Room:
+                    // Room temperature is generally good
+                    StressLevel -= 5.0;
+                    break;
+                    
+                case WaterTemperature.Warm:
+                    // Warm water is good in cold seasons, bad in warm seasons
+                    if (CurrentSeason == Season.Winter)
+                    {
+                        StressLevel -= 10.0;
+                        Happiness += 5.0;
+                    }
+                    else if (CurrentSeason == Season.Summer)
+                    {
+                        StressLevel += 10.0;
+                        Happiness -= 5.0;
+                    }
+                    break;
+            }
+            
+            // Check if watering matches the bonsai's preference
+            if (WaterNeeds == WaterPreference.Low && (Hydration - initialHydration) > 20)
+            {
+                // Doesn't like too much water
+                AddNotification(new BonsaiNotification(
+                    "Water Preference", 
+                    $"{Name} prefers less water. Consider watering less next time.",
+                    NotificationSeverity.Information));
+            }
+            else if (WaterNeeds == WaterPreference.High && (Hydration - initialHydration) < 15)
+            {
+                // Wants more water
+                AddNotification(new BonsaiNotification(
+                    "Water Preference", 
+                    $"{Name} loves water and could use more next time!",
+                    NotificationSeverity.Information));
+            }
+            
+            // Update stats and check for perfect care streak
+            UpdatePerfectCareStreak();
+            OnStatsChanged();
+        }
+        
+        /// <summary>
+        /// Plays music for the bonsai, affecting its mood
+        /// </summary>
+        public void PlayMusic(MusicType musicType)
+        {
+            if (IsDead) return;
+            
+            // Base happiness increase
+            double happinessIncrease = 15.0;
+            double stressReduction = 10.0;
+            
+            // Apply effects based on music type and bonsai preferences
+            switch (musicType)
+            {
+                case MusicType.Classical:
+                    // Classical is refined and elegant
+                    if (CurrentMood == EmotionalState.Stressed || CurrentMood == EmotionalState.Anxious)
+                    {
+                        happinessIncrease += 10.0;
+                        stressReduction += 15.0;
+                    }
+                    break;
+                    
+                case MusicType.Nature:
+                    // Nature sounds are always welcome
+                    happinessIncrease += 5.0;
+                    stressReduction += 10.0;
+                    break;
+                    
+                case MusicType.Upbeat:
+                    // Upbeat can help sad trees but stress calm ones
+                    if (CurrentMood == EmotionalState.Sad || CurrentMood == EmotionalState.Depressed)
+                    {
+                        happinessIncrease += 15.0;
+                    }
+                    else if (CurrentMood == EmotionalState.Content || CurrentMood == EmotionalState.Happy)
+                    {
+                        stressReduction = 0; // No stress reduction
+                        StressLevel += 5.0; // Actually adds a bit of stress
+                    }
+                    break;
+                    
+                case MusicType.Meditation:
+                    // Meditation is calming
+                    stressReduction += 20.0;
+                    if (CurrentMood == EmotionalState.Stressed)
+                    {
+                        happinessIncrease += 15.0;
+                    }
+                    break;
+            }
+            
+            // Apply the effects
+            Happiness = Math.Min(100, Happiness + happinessIncrease);
+            StressLevel = Math.Max(0, StressLevel - stressReduction);
+            
+            // Track activity
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 10);
+            
+            // Add to care history
+            CareHistory.Add(new CareAction 
+            { 
+                ActionType = CareActionType.Playing,
+                Timestamp = DateTime.Now,
+                GameTimestamp = InGameTime,
+                EffectDescription = $"Happiness +{happinessIncrease:0.0}, Stress -{stressReduction:0.0}"
+            });
+            
+            // Update stats and trigger notification
+            UpdateMood(); // Immediate mood update
+            OnStatsChanged();
+            
             AddNotification(new BonsaiNotification(
-                "Playtime", 
-                $"{Name} enjoyed the interaction!", 
+                "Music Session", 
+                $"{Name} enjoyed listening to {musicType} music!",
                 NotificationSeverity.Information));
         }
         
         /// <summary>
-        /// Changes the time multiplier for in-game time progression
+        /// Adjusts the bonsai's exposure to light
         /// </summary>
-        public void SetTimeMultiplier(double multiplier)
+        public void AdjustLight(LightExposure exposure)
         {
-            TimeMultiplier = Math.Max(0, Math.Min(10, multiplier));
+            if (IsDead) return;
+            
+            // Base effects
+            double happinessChange = 0;
+            double healthChange = 0;
+            double stressChange = 0;
+            
+            // Match against preferences
+            bool matchesPreference = false;
+            switch (LightNeeds)
+            {
+                case LightPreference.FullSun:
+                    matchesPreference = (exposure == LightExposure.Direct);
+                    break;
+                case LightPreference.PartialSun:
+                    matchesPreference = (exposure == LightExposure.Filtered);
+                    break;
+                case LightPreference.Shade:
+                    matchesPreference = (exposure == LightExposure.Indirect);
+                    break;
+            }
+            
+            // Apply effects based on match
+            if (matchesPreference)
+            {
+                happinessChange = 15.0;
+                healthChange = 10.0;
+                stressChange = -15.0;
+            }
+            else
+            {
+                // Wrong light exposure has negative effects
+                if ((LightNeeds == LightPreference.FullSun && exposure == LightExposure.Indirect) ||
+                    (LightNeeds == LightPreference.Shade && exposure == LightExposure.Direct))
+                {
+                    // Severe mismatch
+                    happinessChange = -10.0;
+                    healthChange = -5.0;
+                    stressChange = 15.0;
+                }
+                else
+                {
+                    // Moderate mismatch
+                    happinessChange = -5.0;
+                    healthChange = -2.0;
+                    stressChange = 5.0;
+                }
+            }
+            
+            // Apply the effects
+            Happiness = Math.Max(0, Math.Min(100, Happiness + happinessChange));
+            Health = Math.Max(0, Math.Min(100, Health + healthChange));
+            StressLevel = Math.Max(0, Math.Min(100, StressLevel + stressChange));
+            
+            // Track the activity
+            LastActivity = DateTime.Now;
+            ActivityScore = Math.Min(100, ActivityScore + 5);
+            
+            // Add to care history
+            CareHistory.Add(new CareAction 
+            { 
+                ActionType = CareActionType.AdjustLight,
+                Timestamp = DateTime.Now,
+                GameTimestamp = InGameTime,
+                EffectDescription = $"Light adjusted to {exposure}"
+            });
+            
+            // Update stats and trigger notification
+            OnStatsChanged();
+            
+            if (matchesPreference)
+            {
+                AddNotification(new BonsaiNotification(
+                    "Perfect Light", 
+                    $"{Name} loves the {exposure.ToString().ToLower()} light exposure!",
+                    NotificationSeverity.Information));
+            }
+            else
+            {
+                AddNotification(new BonsaiNotification(
+                    "Light Adjustment", 
+                    $"{Name} has been moved to {exposure.ToString().ToLower()} light.",
+                    NotificationSeverity.Information));
+            }
         }
 
         #endregion
@@ -485,399 +1463,361 @@ namespace BonsaiGotchi
         #region Helper Methods
 
         /// <summary>
-        /// Degrades stats over time
-        /// </summary>
-        private void DegradeStats(double daysFraction)
-        {
-            // Don't degrade if the timespan is too short
-            if (daysFraction < 0.001) return;
-            
-            // Degradation rates per day
-            double hydrationDecayRate = 15.0;
-            double happinessDecayRate = 5.0;
-            double hungerIncreaseRate = 10.0;
-            double soilQualityDecayRate = 3.0;
-            double pruningQualityDecayRate = 2.0;
-            
-            // Apply degradation
-            Hydration = Math.Max(0, Hydration - (hydrationDecayRate * daysFraction));
-            Happiness = Math.Max(0, Happiness - (happinessDecayRate * daysFraction));
-            Hunger = Math.Min(100, Hunger + (hungerIncreaseRate * daysFraction));
-            SoilQuality = Math.Max(0, SoilQuality - (soilQualityDecayRate * daysFraction));
-            PruningQuality = Math.Max(0, PruningQuality - (pruningQualityDecayRate * daysFraction));
-        }
-        
-        /// <summary>
-        /// Updates health and growth based on other stats
-        /// </summary>
-        private void UpdateDerivedStats()
-        {
-            // Health is derived from hydration, hunger, soil quality
-            double newHealth = (Hydration * 0.3) + ((100 - Hunger) * 0.3) + (SoilQuality * 0.3) + (PruningQuality * 0.1);
-            
-            // Apply smoothing to avoid dramatic changes
-            Health = (Health * 0.7) + (newHealth * 0.3);
-            Health = Math.Max(0, Math.Min(100, Health));
-            
-            // Growth increases slowly over time if all conditions are good
-            if (Health > 70 && Hunger < 30 && SoilQuality > 50)
-            {
-                Growth += 0.05;
-                Growth = Math.Min(100, Growth);
-            }
-            
-            // Update stage progress
-            UpdateStageProgress();
-        }
-
-        /// <summary>
-        /// Checks for stage advancement based on growth and age
-        /// </summary>
-        private void CheckForStageAdvancement()
-        {
-            // Check for stage advancement based on age and growth
-            GrowthStage nextStage = CurrentStage;
-            
-            switch (CurrentStage)
-            {
-                case GrowthStage.Seedling:
-                    if (Age >= 14 && Growth >= 30) nextStage = GrowthStage.Sapling;
-                    break;
-                case GrowthStage.Sapling:
-                    if (Age >= 60 && Growth >= 60) nextStage = GrowthStage.YoungTree;
-                    break;
-                case GrowthStage.YoungTree:
-                    if (Age >= 180 && Growth >= 80) nextStage = GrowthStage.MatureTree;
-                    break;
-                case GrowthStage.MatureTree:
-                    if (Age >= 365 && Growth >= 95) nextStage = GrowthStage.ElderTree;
-                    break;
-            }
-            
-            // If stage has advanced
-            if (nextStage != CurrentStage)
-            {
-                CurrentStage = nextStage;
-                StageProgress = 0;
-                
-                AddNotification(new BonsaiNotification(
-                    "Growth Milestone!", 
-                    $"{Name} has reached a new stage: {CurrentStage}",
-                    NotificationSeverity.Achievement));
-                
-                OnStageAdvanced();
-            }
-        }
-        
-        /// <summary>
-        /// Updates progress within the current growth stage
-        /// </summary>
-        private void UpdateStageProgress()
-        {
-            int maxAgeForStage;
-            int minAgeForStage;
-            
-            // Define age ranges for each stage
-            switch (CurrentStage)
-            {
-                case GrowthStage.Seedling:
-                    minAgeForStage = 0;
-                    maxAgeForStage = 14;
-                    break;
-                case GrowthStage.Sapling:
-                    minAgeForStage = 14;
-                    maxAgeForStage = 60;
-                    break;
-                case GrowthStage.YoungTree:
-                    minAgeForStage = 60;
-                    maxAgeForStage = 180;
-                    break;
-                case GrowthStage.MatureTree:
-                    minAgeForStage = 180;
-                    maxAgeForStage = 365;
-                    break;
-                case GrowthStage.ElderTree:
-                    minAgeForStage = 365;
-                    maxAgeForStage = 1095;  // 3 years
-                    break;
-                default:
-                    minAgeForStage = 0;
-                    maxAgeForStage = 100;
-                    break;
-            }
-            
-            // Calculate progress percentage within stage
-            int ageRange = maxAgeForStage - minAgeForStage;
-            if (ageRange <= 0) return;
-            
-            int ageWithinStage = Age - minAgeForStage;
-            StageProgress = (int)Math.Min(100, (ageWithinStage * 100.0) / ageRange);
-        }
-        
-        /// <summary>
-        /// Checks health conditions and updates sickness and death status
-        /// </summary>
-        private void CheckHealthConditions()
-        {
-            // Check for sickness
-            if (Health < 30 || Hydration < 10 || Hunger > 90)
-            {
-                if (!IsSick)
-                {
-                    IsSick = true;
-                    AddNotification(new BonsaiNotification(
-                        "Bonsai Sickness", 
-                        $"{Name} is not feeling well! Please attend to its needs.",
-                        NotificationSeverity.Alert));
-                }
-            }
-            else
-            {
-                // Recover from sickness if conditions improve
-                if (IsSick && Health > 50 && Hydration > 40 && Hunger < 60)
-                {
-                    IsSick = false;
-                    AddNotification(new BonsaiNotification(
-                        "Recovery", 
-                        $"{Name} is feeling better now!",
-                        NotificationSeverity.Information));
-                }
-            }
-            
-            // Check for death
-            if (Health <= 0 || (IsSick && Health < 10 && Age > 7))
-            {
-                IsDead = true;
-                AddNotification(new BonsaiNotification(
-                    "Bonsai Death", 
-                    $"Unfortunately, {Name} has died. You can start a new bonsai pet.",
-                    NotificationSeverity.Critical));
-            }
-            
-            // Natural death from old age
-            if (Age > 1825)  // 5 years
-            {
-                IsDead = true;
-                AddNotification(new BonsaiNotification(
-                    "Natural Death", 
-                    $"{Name} has reached the end of its natural life cycle at the age of {Age} days.",
-                    NotificationSeverity.Information));
-            }
-        }
-        
-        /// <summary>
-        /// Generates notifications based on current stats
-        /// </summary>
-        private void GenerateNotifications()
-        {
-            // Check hydration status
-            if (Hydration < 20)
-            {
-                AddNotification(new BonsaiNotification(
-                    "Watering Needed", 
-                    $"{Name} is getting thirsty! Water soon.",
-                    Hydration < 10 ? NotificationSeverity.Alert : NotificationSeverity.Warning));
-            }
-            
-            // Check hunger status
-            if (Hunger > 70)
-            {
-                AddNotification(new BonsaiNotification(
-                    "Feeding Needed", 
-                    $"{Name} needs nutrients! Consider fertilizing.",
-                    Hunger > 85 ? NotificationSeverity.Alert : NotificationSeverity.Warning));
-            }
-            
-            // Check soil quality
-            if (SoilQuality < 30)
-            {
-                AddNotification(new BonsaiNotification(
-                    "Poor Soil", 
-                    $"The soil quality is degrading. Consider repotting soon.",
-                    NotificationSeverity.Warning));
-            }
-            
-            // Check pruning quality
-            if (PruningQuality < 30)
-            {
-                AddNotification(new BonsaiNotification(
-                    "Pruning Needed", 
-                    $"{Name} is getting unruly and needs pruning.",
-                    NotificationSeverity.Warning));
-            }
-            
-            // Check happiness
-            if (Happiness < 30)
-            {
-                AddNotification(new BonsaiNotification(
-                    "Unhappy Bonsai", 
-                    $"{Name} seems unhappy. Try interacting more often.",
-                    NotificationSeverity.Warning));
-            }
-        }
-        
-        /// <summary>
-        /// Adds a notification to the active notifications list
+        /// Add a notification
         /// </summary>
         private void AddNotification(BonsaiNotification notification)
         {
-            // Add to active notifications and remove duplicates
-            if (!ActiveNotifications.Exists(n => n.Title == notification.Title))
+            // Add to active notifications
+            ActiveNotifications.Add(notification);
+            
+            // Limit to 20 notifications
+            while (ActiveNotifications.Count > 20)
             {
-                ActiveNotifications.Add(notification);
-                
-                // Limit the number of active notifications
-                while (ActiveNotifications.Count > 10)
-                {
-                    ActiveNotifications.RemoveAt(0);
-                }
-                
-                // Trigger notification event
-                OnNotificationTriggered(notification);
+                ActiveNotifications.RemoveAt(0);
             }
+            
+            // Trigger notification event
+            NotificationTriggered?.Invoke(this, new NotificationEventArgs(notification));
         }
         
         /// <summary>
-        /// Generates random likes and dislikes for the bonsai
+        /// Set the time multiplier
         /// </summary>
-        private void GenerateLikesAndDislikes(Random random)
+        public void SetTimeMultiplier(double multiplier)
         {
-            Likes = new List<string>();
-            Dislikes = new List<string>();
-            
-            string[] possibleLikes = {
-                "Morning sunlight", "Gentle misting", "Calm breezes",
-                "Classical music", "Being talked to", "Rain sounds",
-                "Regular pruning", "Small amounts of fertilizer",
-                "Fresh spring water", "Having visitors", "Being outdoors",
-                "Careful wiring", "Natural light cycles", "The color blue"
-            };
-            
-            string[] possibleDislikes = {
-                "Direct afternoon sun", "Overwatering", "Strong winds",
-                "Loud music", "Being moved often", "Tap water",
-                "Over-pruning", "Too much fertilizer", "Being indoors too long",
-                "Cold drafts", "Being neglected", "Irregular watering",
-                "Dramatic temperature changes", "The color red"
-            };
-            
-            // Generate 3-4 random likes
-            int numberOfLikes = random.Next(3, 5);
-            for (int i = 0; i < numberOfLikes; i++)
-            {
-                string like = possibleLikes[random.Next(possibleLikes.Length)];
-                if (!Likes.Contains(like))
-                {
-                    Likes.Add(like);
-                }
-            }
-            
-            // Generate 2-3 random dislikes
-            int numberOfDislikes = random.Next(2, 4);
-            for (int i = 0; i < numberOfDislikes; i++)
-            {
-                string dislike = possibleDislikes[random.Next(possibleDislikes.Length)];
-                if (!Dislikes.Contains(dislike) && !Likes.Contains(dislike))
-                {
-                    Dislikes.Add(dislike);
-                }
-            }
+            // Clamp to reasonable range
+            TimeMultiplier = Math.Max(0.1, Math.Min(100.0, multiplier));
         }
-
-        #endregion
         
-        #region Event Triggers
-
-        protected virtual void OnStatsChanged()
+        /// <summary>
+        /// Notify that stats have changed
+        /// </summary>
+        private void OnStatsChanged()
         {
             StatsChanged?.Invoke(this, EventArgs.Empty);
         }
         
-        protected virtual void OnNotificationTriggered(BonsaiNotification notification)
+        /// <summary>
+        /// Get bonus factor for care actions based on time of day
+        /// </summary>
+        public double GetTimeOfDayBonusFactor()
         {
-            NotificationTriggered?.Invoke(this, notification);
+            if (MorningActivityBonus)
+                return 1.2; // 20% bonus
+            
+            if (EveningActivityBonus)
+                return 1.1; // 10% bonus
+            
+            if (NightActivityPenalty)
+                return 0.8; // 20% penalty
+            
+            return 1.0; // No bonus or penalty
         }
         
-        protected virtual void OnStageAdvanced()
+        /// <summary>
+        /// Determines the season based on calendar month
+        /// </summary>
+        private Season DetermineSeason(int month)
         {
-            StageAdvanced?.Invoke(this, EventArgs.Empty);
+            return month switch
+            {
+                12 or 1 or 2 => Season.Winter,
+                3 or 4 or 5 => Season.Spring,
+                6 or 7 or 8 => Season.Summer,
+                _ => Season.Autumn
+            };
+        }
+        
+        /// <summary>
+        /// Generates appropriate random weather based on season
+        /// </summary>
+        private Weather GenerateRandomWeather(Random random, Season season)
+        {
+            // Weather probabilities vary by season
+            double roll = random.NextDouble();
+            
+            return season switch
+            {
+                Season.Winter => roll switch
+                {
+                    < 0.3 => Weather.Snow,
+                    < 0.6 => Weather.Cloudy,
+                    < 0.8 => Weather.Wind,
+                    < 0.9 => Weather.Sunny, // Rare in winter
+                    _ => Weather.Rain
+                },
+                
+                Season.Spring => roll switch
+                {
+                    < 0.4 => Weather.Rain,
+                    < 0.7 => Weather.Sunny,
+                    < 0.85 => Weather.Cloudy,
+                    < 0.95 => Weather.Humid,
+                    _ => Weather.Wind
+                },
+                
+                Season.Summer => roll switch
+                {
+                    < 0.6 => Weather.Sunny,
+                    < 0.8 => Weather.Humid,
+                    < 0.9 => Weather.Cloudy,
+                    < 0.95 => Weather.Rain,
+                    _ => Weather.Storm
+                },
+                
+                Season.Autumn => roll switch
+                {
+                    < 0.3 => Weather.Wind,
+                    < 0.6 => Weather.Cloudy,
+                    < 0.8 => Weather.Rain,
+                    < 0.95 => Weather.Sunny,
+                    _ => Weather.Storm
+                },
+                
+                _ => Weather.Cloudy // Default
+            };
+        }
+        
+        /// <summary>
+        /// Determine if weather change is significant enough to notify
+        /// </summary>
+        private bool IsSignificantWeatherChange(Weather oldWeather, Weather newWeather)
+        {
+            // Only notify for drastic changes
+            if (oldWeather == newWeather) return false;
+            
+            // Always notify for extreme weather
+            if (newWeather == Weather.Storm || newWeather == Weather.Snow) return true;
+            
+            // Changes from pleasant to unpleasant or vice versa
+            bool wasPleasant = oldWeather == Weather.Sunny || oldWeather == Weather.Cloudy;
+            bool isPleasant = newWeather == Weather.Sunny || newWeather == Weather.Cloudy;
+            
+            return wasPleasant != isPleasant;
+        }
+        
+        /// <summary>
+        /// Determine if the current weather is preferred by this bonsai
+        /// </summary>
+        private bool IsWeatherPreferred()
+        {
+            // Different bonsai styles prefer different weather
+            return Style switch
+            {
+                BonsaiStyle.FormalUpright => CurrentWeather == Weather.Sunny,
+                BonsaiStyle.InformalUpright => CurrentWeather == Weather.Cloudy || CurrentWeather == Weather.Sunny,
+                BonsaiStyle.Windswept => CurrentWeather == Weather.Wind,
+                BonsaiStyle.Cascade => CurrentWeather == Weather.Rain || CurrentWeather == Weather.Humid,
+                BonsaiStyle.Slanting => CurrentWeather == Weather.Wind || CurrentWeather == Weather.Sunny,
+                _ => false
+            };
+        }
+        
+        /// <summary>
+        /// Determine if the current season is preferred by this bonsai
+        /// </summary>
+        private bool IsSeasonPreferred()
+        {
+            // Different bonsai styles prefer different seasons
+            return Style switch
+            {
+                BonsaiStyle.FormalUpright => CurrentSeason == Season.Summer,
+                BonsaiStyle.InformalUpright => CurrentSeason == Season.Spring,
+                BonsaiStyle.Windswept => CurrentSeason == Season.Autumn,
+                BonsaiStyle.Cascade => CurrentSeason == Season.Spring || CurrentSeason == Season.Summer,
+                BonsaiStyle.Slanting => CurrentSeason == Season.Autumn,
+                _ => false
+            };
+        }
+        
+        /// <summary>
+        /// Calculate the emotional state based on mood score
+        /// </summary>
+        private EmotionalState DetermineMood()
+        {
+            return MoodScore switch
+            {
+                < -70 => EmotionalState.Depressed,
+                < -40 => EmotionalState.Sad,
+                < -10 => EmotionalState.Anxious,
+                < 10 => EmotionalState.Neutral,
+                < 40 => EmotionalState.Content,
+                < 70 => EmotionalState.Happy,
+                _ => EmotionalState.Thriving
+            };
+        }
+        
+        /// <summary>
+        /// Calculate days since last activity
+        /// </summary>
+        private int DaysSinceLastActivity()
+        {
+            return (int)(DateTime.Now - LastActivity).TotalDays;
+        }
+        
+        /// <summary>
+        /// Check for perfect care conditions and update streak
+        /// </summary>
+        private void UpdatePerfectCareStreak()
+        {
+            // Define perfect care conditions
+            bool perfectCare = Health > 80 && 
+                               Happiness > 75 && 
+                               Hunger < 30 && 
+                               Hydration > 60 && Hydration < 90 &&
+                               StressLevel < 30 &&
+                               !HasPests && 
+                               !HasDisease;
+            
+            if (perfectCare)
+            {
+                PerfectCareStreak++;
+                
+                // Achievements for care streaks
+                if (PerfectCareStreak == 3)
+                {
+                    AddNotification(new BonsaiNotification(
+                        "Perfect Care Streak!", 
+                        $"You've provided perfect care for {Name} for 3 days in a row!",
+                        NotificationSeverity.Achievement));
+                }
+                else if (PerfectCareStreak == 7)
+                {
+                    AddNotification(new BonsaiNotification(
+                        "Master Caretaker!", 
+                        $"A full week of perfect care for {Name}! You're a bonsai master!",
+                        NotificationSeverity.Achievement));
+                }
+            }
+            else
+            {
+                // Reset streak if care isn't perfect
+                PerfectCareStreak = 0;
+            }
+        }
+        
+        /// <summary>
+        /// Check if a notification of a certain type exists
+        /// </summary>
+        private bool HasNotificationOfType(string title)
+        {
+            return ActiveNotifications.Exists(n => n.Title.Contains(title));
         }
 
         #endregion
-
-        #region Save/Load System
         
+        #region Serialization Methods
+
         /// <summary>
-        /// Saves the bonsai pet data to a JSON file
+        /// Save the bonsai pet to a file
         /// </summary>
         public void SaveToFile(string filePath)
         {
-            try
+            // Create serialization options
+            var options = new JsonSerializerOptions
             {
-                var options = new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                };
-                
-                string jsonString = JsonSerializer.Serialize(this, options);
-                File.WriteAllText(filePath, jsonString);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error saving bonsai pet: {ex.Message}");
-                throw;
-            }
+                WriteIndented = true,
+                IgnoreNullValues = true
+            };
+            
+            // Serialize to JSON
+            string json = JsonSerializer.Serialize(this, options);
+            
+            // Write to file
+            File.WriteAllText(filePath, json);
         }
         
         /// <summary>
-        /// Loads bonsai pet data from a JSON file
+        /// Load a bonsai pet from a file
         /// </summary>
         public static BonsaiPet LoadFromFile(string filePath)
         {
-            try
+            // Read the file
+            string json = File.ReadAllText(filePath);
+            
+            // Deserialize from JSON
+            var options = new JsonSerializerOptions
             {
-                string jsonString = File.ReadAllText(filePath);
-                var bonsai = JsonSerializer.Deserialize<BonsaiPet>(jsonString);
-                
-                // Initialize non-serialized properties
-                if (bonsai != null)
-                {
-                    bonsai.ActiveNotifications = new List<BonsaiNotification>();
-                }
-                
-                return bonsai;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error loading bonsai pet: {ex.Message}");
-                throw;
-            }
+                IgnoreNullValues = true
+            };
+            
+            BonsaiPet bonsai = JsonSerializer.Deserialize<BonsaiPet>(json, options);
+            
+            // Initialize the random number generator
+            bonsai.random = new Random();
+            
+            return bonsai;
         }
 
         #endregion
     }
-
-    #region Enums and Support Classes
-
-    public enum GrowthStage
+    
+    #region Support Classes
+    
+    /// <summary>
+    /// Tracks a care action performed on a bonsai
+    /// </summary>
+    public class CareAction
     {
-        Seedling,
-        Sapling,
-        YoungTree,
-        MatureTree,
-        ElderTree
+        public CareActionType ActionType { get; set; }
+        public DateTime Timestamp { get; set; }
+        public DateTime GameTimestamp { get; set; }
+        public string EffectDescription { get; set; }
     }
     
-    public enum BonsaiStyle
+    /// <summary>
+    /// Notification about bonsai state
+    /// </summary>
+    public class BonsaiNotification
     {
-        FormalUpright,    // Chokkan - straight, formal
-        InformalUpright,  // Moyogi - curved, natural
-        Windswept,        // Fukinagashi - wind-blown
-        Cascade,          // Kengai - waterfall style
-        Slanting,         // Shakan - leaning
-        LiterallyDying    // Dead or dying
+        public string Title { get; set; }
+        public string Message { get; set; }
+        public NotificationSeverity Severity { get; set; }
+        public DateTime Timestamp { get; set; } = DateTime.Now;
+        
+        public BonsaiNotification(string title, string message, NotificationSeverity severity)
+        {
+            Title = title;
+            Message = message;
+            Severity = severity;
+        }
     }
     
+    /// <summary>
+    /// Event args for notification event
+    /// </summary>
+    public class NotificationEventArgs : EventArgs
+    {
+        public BonsaiNotification Notification { get; }
+        
+        public NotificationEventArgs(BonsaiNotification notification)
+        {
+            Notification = notification;
+        }
+    }
+    
+    /// <summary>
+    /// Event args for stage advancement event
+    /// </summary>
+    public class StageAdvancedEventArgs : EventArgs
+    {
+        public GrowthStage OldStage { get; }
+        public GrowthStage NewStage { get; }
+        
+          public StageAdvancedEventArgs(GrowthStage oldStage, GrowthStage newStage)
+        {
+            OldStage = oldStage;
+            NewStage = newStage;
+        }
+    }
+    
+    #endregion
+    
+    #region Enums
+    
+    /// <summary>
+    /// Type of care action performed
+    /// </summary>
     public enum CareActionType
     {
         Watering,
@@ -885,9 +1825,14 @@ namespace BonsaiGotchi
         Pruning,
         Repotting,
         Playing,
-        Medicine
+        Medicine,
+        PestRemoval,
+        AdjustLight
     }
     
+    /// <summary>
+    /// Notification severity for UI display
+    /// </summary>
     public enum NotificationSeverity
     {
         Information,
@@ -897,31 +1842,130 @@ namespace BonsaiGotchi
         Achievement
     }
     
-    public class CareAction
+    /// <summary>
+    /// Bonsai growth stage
+    /// </summary>
+    public enum GrowthStage
     {
-        public CareActionType ActionType { get; set; }
-        public DateTime Timestamp { get; set; }
-        public DateTime GameTimestamp { get; set; }
-        public string EffectDescription { get; set; }
+        Seedling,
+        Sapling,
+        YoungTree,
+        MatureTree,
+        ElderTree
     }
     
-    public class BonsaiNotification
+    /// <summary>
+    /// Bonsai style
+    /// </summary>
+    public enum BonsaiStyle
     {
-        public string Title { get; set; }
-        public string Message { get; set; }
-        public NotificationSeverity Severity { get; set; }
-        public DateTime Timestamp { get; set; }
-        public bool IsRead { get; set; }
-        
-        public BonsaiNotification(string title, string message, NotificationSeverity severity)
-        {
-            Title = title;
-            Message = message;
-            Severity = severity;
-            Timestamp = DateTime.Now;
-            IsRead = false;
-        }
+        FormalUpright,
+        InformalUpright,
+        Windswept,
+        Cascade,
+        Slanting
     }
-
+    
+    /// <summary>
+    /// Season
+    /// </summary>
+    public enum Season
+    {
+        Spring,
+        Summer,
+        Autumn,
+        Winter
+    }
+    
+    /// <summary>
+    /// Weather
+    /// </summary>
+    public enum Weather
+    {
+        Sunny,
+        Cloudy,
+        Rain,
+        Humid,
+        Wind,
+        Storm,
+        Snow
+    }
+    
+    /// <summary>
+    /// Emotional state
+    /// </summary>
+    public enum EmotionalState
+    {
+        Depressed,
+        Sad,
+        Anxious,
+        Neutral,
+        Content,
+        Happy,
+        Thriving,
+        Stressed
+    }
+    
+    /// <summary>
+    /// Light preference
+    /// </summary>
+    public enum LightPreference
+    {
+        FullSun,
+        PartialSun,
+        Shade
+    }
+    
+    /// <summary>
+    /// Water preference
+    /// </summary>
+    public enum WaterPreference
+    {
+        Low,
+        Moderate,
+        High
+    }
+    
+    /// <summary>
+    /// Soil preference
+    /// </summary>
+    public enum SoilPreference
+    {
+        Sandy,
+        Loamy,
+        Clay
+    }
+    
+    /// <summary>
+    /// Water temperature
+    /// </summary>
+    public enum WaterTemperature
+    {
+        Cold,
+        Room,
+        Warm
+    }
+    
+    /// <summary>
+    /// Music type
+    /// </summary>
+    public enum MusicType
+    {
+        Classical,
+        Nature,
+        Upbeat,
+        Meditation
+    }
+    
+    /// <summary>
+    /// Light exposure
+    /// </summary>
+    public enum LightExposure
+    {
+        Direct,
+        Filtered,
+        Indirect
+    }
+    
     #endregion
 }

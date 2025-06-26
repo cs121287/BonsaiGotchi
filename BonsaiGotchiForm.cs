@@ -10,6 +10,7 @@ using BonsaiGotchi.EnvironmentSystem;
 using BonsaiGotchi.MiniGames;
 using BonsaiGotchi.EnvironmentUI;
 using BonsaiGotchi.CollectionUI;
+using Timer = System.Windows.Forms.Timer;
 
 namespace BonsaiGotchi
 {

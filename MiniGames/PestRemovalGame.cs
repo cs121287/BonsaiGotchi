@@ -15,7 +15,7 @@ namespace BonsaiGotchi.MiniGames
         private List<PictureBox> pests = new List<PictureBox>();
         private int pestsRemoved = 0;
         private int totalPests;
-        private System.Windows.Forms.Timer gameTimer;
+        private Timer gameTimer;
         private int secondsRemaining = 30;
         private bool gameActive = false;
         
@@ -85,7 +85,7 @@ namespace BonsaiGotchi.MiniGames
             pestsRemoved = 0;
             
             // Create game timer
-            gameTimer = new System.Windows.Forms.Timer
+            gameTimer = new Timer
             {
                 Interval = 1000 // 1 second
             };
@@ -154,7 +154,7 @@ namespace BonsaiGotchi.MiniGames
             pest.BringToFront();
             
             // Start moving the pest
-            System.Windows.Forms.Timer pestMover = new System.Windows.Forms.Timer
+            Timer pestMover = new Timer
             {
                 Interval = 500
             };

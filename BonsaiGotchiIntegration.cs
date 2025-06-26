@@ -1,113 +1,135 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using BonsaiGotchi.BreedingSystem;
 using BonsaiGotchi.EnvironmentSystem;
-using BonsaiGotchi.CollectionUI;
-using BonsaiGotchi.EnvironmentUI;
+using BonsaiGotchi.MiniGames;
 
 namespace BonsaiGotchi
 {
     /// <summary>
-    /// Manager for integrating Phase 3 advanced features
+    /// Main integration class for BonsaiGotchi phases 1, 2, and 3
     /// </summary>
-    public class Phase3IntegrationManager
+    public class BonsaiGotchiIntegration
     {
         // Core managers
-        private readonly BreedingManager breedingManager;
-        private readonly EnvironmentManager environmentManager;
+        public EnvironmentManager EnvironmentManager { get; private set; }
+        public BreedingManager BreedingManager { get; private set; }
         
-        // Random generator
-        private readonly Random random;
+        // Main form
+        private BonsaiGotchiForm mainForm;
         
-        // Active bonsai
-        private BonsaiPet activeBonsai;
+        // Random number generator
+        private Random random;
         
-        // Parent form
-        private Form parentForm;
-        
-        /// <summary>
-        /// Initialize the Phase 3 integration manager
-        /// </summary>
-        public Phase3IntegrationManager(Form parentForm, BonsaiPet initialBonsai = null)
+        public BonsaiGotchiIntegration(BonsaiGotchiForm mainForm)
         {
-            this.parentForm = parentForm;
-            
-            // Create shared random generator
+            this.mainForm = mainForm;
             random = new Random();
             
-            // Create core managers
-            environmentManager = new EnvironmentManager(random);
-            breedingManager = new BreedingManager(random, initialBonsai);
-            
-            // Set active bonsai
-            activeBonsai = initialBonsai;
-            
-            // Start environment simulation
-            environmentManager.Start();
+            // Initialize core systems
+            InitializeEnvironmentManager();
+            InitializeBreedingManager();
         }
         
         /// <summary>
-        /// Get the current environment manager
+        /// Initialize the environment manager system
         /// </summary>
-        public EnvironmentManager Environment => environmentManager;
+        private void InitializeEnvironmentManager()
+        {
+            EnvironmentManager = new EnvironmentManager(random);
+            EnvironmentManager.Start();
+            
+            // Subscribe to environment events
+            SubscribeToEnvironmentEvents();
+        }
         
         /// <summary>
-        /// Get the current breeding manager
+        /// Initialize the breeding manager system
         /// </summary>
-        public BreedingManager Breeding => breedingManager;
+        private void InitializeBreedingManager()
+        {
+            BreedingManager = new BreedingManager(random);
+        }
         
         /// <summary>
-        /// Set the active bonsai
+        /// Subscribe to environment manager events
+        /// </summary>
+        private void SubscribeToEnvironmentEvents()
+        {
+            EnvironmentManager.SeasonChanged += (s, e) => 
+            {
+                // Update current bonsai with new season
+                mainForm.UpdateCurrentBonsaiWithEnvironment();
+            };
+            
+            EnvironmentManager.WeatherChanged += (s, e) => 
+            {
+                // Update current bonsai with new weather
+                mainForm.UpdateCurrentBonsaiWithEnvironment();
+            };
+            
+            EnvironmentManager.TimeOfDayChanged += (s, e) => 
+            {
+                // Update current bonsai with new time of day
+                mainForm.UpdateCurrentBonsaiWithEnvironment();
+            };
+            
+            EnvironmentManager.EnvironmentalEventStarted += (s, e) => 
+            {
+                // Notify about new environmental event
+                mainForm.NotifyEnvironmentalEvent(e.Event, true);
+            };
+            
+            EnvironmentManager.EnvironmentalEventEnded += (s, e) => 
+            {
+                // Notify about ended environmental event
+                mainForm.NotifyEnvironmentalEvent(e.Event, false);
+            };
+        }
+        
+        /// <summary>
+        /// Set the active bonsai for all systems
         /// </summary>
         public void SetActiveBonsai(BonsaiPet bonsai)
         {
             if (bonsai == null) return;
             
-            activeBonsai = bonsai;
-            breedingManager.SetActiveBonsai(bonsai);
+            // Set as active in breeding manager
+            BreedingManager.SetActiveBonsai(bonsai);
         }
         
         /// <summary>
-        /// Update the bonsai with environmental effects
+        /// Update bonsai based on environment
         /// </summary>
         public void UpdateBonsaiWithEnvironment(BonsaiPet bonsai, TimeSpan elapsed)
         {
             if (bonsai == null) return;
             
-            // Apply environmental effects to the bonsai
-            
-            // Season effects
             ApplySeasonEffects(bonsai, elapsed);
-            
-            // Weather effects
             ApplyWeatherEffects(bonsai, elapsed);
-            
-            // Time of day effects
             ApplyTimeOfDayEffects(bonsai);
-            
-            // Climate effects
             ApplyClimateEffects(bonsai, elapsed);
-            
-            // Environmental events
             ApplyEventEffects(bonsai, elapsed);
         }
         
         /// <summary>
-        /// Apply effects of the current season
+        /// Apply seasonal effects to bonsai
         /// </summary>
         private void ApplySeasonEffects(BonsaiPet bonsai, TimeSpan elapsed)
         {
             double daysFraction = elapsed.TotalDays;
             if (daysFraction < 0.001) return;
             
-            // Base growth rate changes by season
-            double growthChange = 0;
-            
-            switch (environmentManager.CurrentSeason)
+            // Apply different effects based on season
+            switch (EnvironmentManager.CurrentSeason)
             {
                 case Season.Spring:
                     // Spring is good for growth
-                    growthChange = 0.2 * daysFraction;
+                    bonsai.Growth += 0.2 * daysFraction;
                     bonsai.Hydration -= 1.0 * daysFraction; // Moderate water needs
                     break;
                     
@@ -120,32 +142,35 @@ namespace BonsaiGotchi
                     
                 case Season.Autumn:
                     // Autumn slows growth
-                    growthChange = 0.1 * daysFraction;
+                    bonsai.Growth += 0.1 * daysFraction;
                     // Natural pruning happens (leaves falling)
                     bonsai.PruningQuality += 0.5 * daysFraction;
                     break;
                     
                 case Season.Winter:
                     // Winter is dormant period
-                    growthChange = -0.1 * daysFraction; // Can actually decrease slightly
+                    bonsai.Growth -= 0.1 * daysFraction; // Can actually decrease slightly
                     bonsai.Hydration -= 0.5 * daysFraction; // Low water needs
                     bonsai.Hunger -= 0.5 * daysFraction; // Low feeding needs
                     break;
             }
             
-            // Apply growth change
-            bonsai.Growth = Math.Max(0, Math.Min(100, bonsai.Growth + growthChange));
+            // Ensure values stay in valid range
+            bonsai.Growth = Math.Max(0, Math.Min(100, bonsai.Growth));
+            bonsai.Hydration = Math.Max(0, Math.Min(100, bonsai.Hydration));
+            bonsai.Hunger = Math.Max(0, Math.Min(100, bonsai.Hunger));
         }
         
         /// <summary>
-        /// Apply effects of the current weather
+        /// Apply weather effects to bonsai
         /// </summary>
         private void ApplyWeatherEffects(BonsaiPet bonsai, TimeSpan elapsed)
         {
             double daysFraction = elapsed.TotalDays;
             if (daysFraction < 0.001) return;
             
-            switch (environmentManager.CurrentWeather)
+            // Apply different effects based on weather
+            switch (EnvironmentManager.CurrentWeather)
             {
                 case Weather.Sunny:
                     // Sunny weather increases happiness but decreases hydration
@@ -191,15 +216,22 @@ namespace BonsaiGotchi
                     bonsai.PestInfestation -= 1.0 * daysFraction;
                     break;
             }
+            
+            // Ensure values stay in valid range
+            bonsai.Happiness = Math.Max(0, Math.Min(100, bonsai.Happiness));
+            bonsai.Hydration = Math.Max(0, Math.Min(100, bonsai.Hydration));
+            bonsai.StressLevel = Math.Max(0, Math.Min(100, bonsai.StressLevel));
+            bonsai.PestInfestation = Math.Max(0, Math.Min(100, bonsai.PestInfestation));
+            bonsai.Growth = Math.Max(0, Math.Min(100, bonsai.Growth));
         }
         
         /// <summary>
-        /// Apply effects of the time of day
+        /// Apply time of day effects to bonsai
         /// </summary>
         private void ApplyTimeOfDayEffects(BonsaiPet bonsai)
         {
-            // Certain activities are better at certain times of day
-            switch (environmentManager.CurrentTimeOfDay)
+            // Different times of day affect care effectiveness
+            switch (EnvironmentManager.CurrentTimeOfDay)
             {
                 case TimeOfDay.Morning:
                     // Morning is good for watering
@@ -232,22 +264,22 @@ namespace BonsaiGotchi
         }
         
         /// <summary>
-        /// Apply effects of the current climate
+        /// Apply climate zone effects to bonsai
         /// </summary>
         private void ApplyClimateEffects(BonsaiPet bonsai, TimeSpan elapsed)
         {
             double daysFraction = elapsed.TotalDays;
             if (daysFraction < 0.001) return;
             
-            // Different climates have different baseline effects
-            switch (environmentManager.CurrentClimate)
+            // Apply different effects based on climate zone
+            switch (EnvironmentManager.CurrentClimate)
             {
                 case ClimateZone.Temperate:
                     // Temperate is balanced
                     break;
                     
                 case ClimateZone.Tropical:
-                    // Tropical increases growth but also pests
+                    // Tropical increases growth but also pest risk
                     bonsai.Growth += 0.2 * daysFraction;
                     bonsai.PestInfestation += 0.2 * daysFraction;
                     break;
@@ -264,23 +296,29 @@ namespace BonsaiGotchi
                     bonsai.StressLevel -= 0.3 * daysFraction;
                     break;
             }
+            
+            // Ensure values stay in valid range
+            bonsai.Growth = Math.Max(0, Math.Min(100, bonsai.Growth));
+            bonsai.Hydration = Math.Max(0, Math.Min(100, bonsai.Hydration));
+            bonsai.PestInfestation = Math.Max(0, Math.Min(100, bonsai.PestInfestation));
+            bonsai.StressLevel = Math.Max(0, Math.Min(100, bonsai.StressLevel));
         }
         
         /// <summary>
-        /// Apply effects of active environmental events
+        /// Apply active environmental events to bonsai
         /// </summary>
         private void ApplyEventEffects(BonsaiPet bonsai, TimeSpan elapsed)
         {
             double daysFraction = elapsed.TotalDays;
             if (daysFraction < 0.001) return;
             
-            // Apply effects for each active event
-            foreach (var environmentalEvent in environmentManager.ActiveEvents)
+            // Apply effects for active environmental events
+            foreach (var envEvent in EnvironmentManager.ActiveEvents)
             {
-                // Scale effects based on intensity (0-100)
-                double intensityFactor = environmentalEvent.Intensity / 100.0;
+                // Scale effects based on intensity
+                double intensityFactor = envEvent.Intensity / 100.0;
                 
-                switch (environmentalEvent.Type)
+                switch (envEvent.Type)
                 {
                     case EventType.Heatwave:
                         bonsai.Hydration -= 5.0 * intensityFactor * daysFraction;
@@ -294,82 +332,77 @@ namespace BonsaiGotchi
                         
                     case EventType.HeavyRain:
                         bonsai.Hydration += 5.0 * intensityFactor * daysFraction;
-                        bonsai.SoilQuality -= 1.0 * intensityFactor * daysFraction; // Some nutrient leaching
+                        bonsai.SoilQuality -= 1.0 * intensityFactor * daysFraction; // Nutrient leaching
                         break;
                         
                     case EventType.Insects:
                         bonsai.PestInfestation += 5.0 * intensityFactor * daysFraction;
                         break;
                         
-                    case EventType.Pollen:
-                        // No direct effect on bonsai, but might affect player (allergies)
+                    case EventType.ColdSnap:
+                        bonsai.StressLevel += 4.0 * intensityFactor * daysFraction;
+                        bonsai.Growth -= 2.0 * intensityFactor * daysFraction;
                         break;
                         
-                    // Add cases for other event types as needed
+                    case EventType.Frost:
+                        bonsai.StressLevel += 3.0 * intensityFactor * daysFraction;
+                        bonsai.Health -= 1.0 * intensityFactor * daysFraction;
+                        break;
                 }
+                
+                // Ensure values stay in valid range
+                bonsai.Hydration = Math.Max(0, Math.Min(100, bonsai.Hydration));
+                bonsai.StressLevel = Math.Max(0, Math.Min(100, bonsai.StressLevel));
+                bonsai.Hunger = Math.Max(0, Math.Min(100, bonsai.Hunger));
+                bonsai.PestInfestation = Math.Max(0, Math.Min(100, bonsai.PestInfestation));
+                bonsai.SoilQuality = Math.Max(0, Math.Min(100, bonsai.SoilQuality));
+                bonsai.Growth = Math.Max(0, Math.Min(100, bonsai.Growth));
+                bonsai.Health = Math.Max(0, Math.Min(100, bonsai.Health));
             }
         }
         
         /// <summary>
-        /// Show the collection manager form
+        /// Save all system data
         /// </summary>
-        public void ShowCollectionManager()
-        {
-            var collectionForm = new CollectionManagerForm(breedingManager, random);
-            collectionForm.ShowDialog(parentForm);
-        }
-        
-        /// <summary>
-        /// Show the environment monitor form
-        /// </summary>
-        public void ShowEnvironmentMonitor()
-        {
-            var environmentForm = new EnvironmentMonitorForm(environmentManager);
-            environmentForm.ShowDialog(parentForm);
-        }
-        
-        /// <summary>
-        /// Save all Phase 3 data
-        /// </summary>
-        public async Task SaveDataAsync(string basePath)
+        public async Task SaveAllDataAsync(string basePath)
         {
             try
             {
                 // Create directories if they don't exist
-                string breedingPath = Path.Combine(basePath, "breeding");
+                string breedingPath = Path.Combine(basePath, "breeding_data");
                 Directory.CreateDirectory(breedingPath);
                 
                 // Save breeding data
                 string breedingFile = Path.Combine(breedingPath, "breeding_data.json");
-                await breedingManager.SaveDataAsync(breedingFile);
+                await BreedingManager.SaveDataAsync(breedingFile);
                 
                 // Environment data doesn't need to be saved as it's regenerated each session
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to save Phase 3 data: {ex.Message}");
+                Console.WriteLine($"Failed to save integrated data: {ex.Message}");
             }
         }
         
         /// <summary>
-        /// Load all Phase 3 data
+        /// Load all system data
         /// </summary>
-        public async Task LoadDataAsync(string basePath)
+        public async Task LoadAllDataAsync(string basePath)
         {
             try
             {
-                // Load breeding data
-                string breedingFile = Path.Combine(basePath, "breeding", "breeding_data.json");
+                // Load breeding data if it exists
+                string breedingFile = Path.Combine(basePath, "breeding_data", "breeding_data.json");
                 if (File.Exists(breedingFile))
                 {
-                    await breedingManager.LoadDataAsync(breedingFile);
+                    await BreedingManager.LoadDataAsync(breedingFile);
                 }
                 
                 // Environment data doesn't need to be loaded as it's regenerated each session
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to load Phase 3 data: {ex.Message}");
+                Console.WriteLine($"Failed to load integrated data: {ex.Message}");
             }
         }
         
@@ -378,7 +411,7 @@ namespace BonsaiGotchi
         /// </summary>
         public void Dispose()
         {
-            environmentManager.Stop();
+            EnvironmentManager.Stop();
         }
     }
 }

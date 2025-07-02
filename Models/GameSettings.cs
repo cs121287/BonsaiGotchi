@@ -1,111 +1,68 @@
 using System;
 using System.IO;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace BonsaiGotchiGame.Models
 {
     public class GameSettings
     {
+        private static readonly string _settingsFilePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "BonsaiGotchiGame",
+            "settings.json");
+
         private static GameSettings? _instance;
-        private static readonly object _lock = new object();
 
         public static GameSettings Instance
         {
             get
             {
-                if (_instance == null)
-                {
-                    lock (_lock)
-                    {
-                        if (_instance == null)
-                        {
-                            _instance = Load();
-                        }
-                    }
-                }
+                _instance ??= LoadSettings();
                 return _instance;
             }
         }
 
-        // Game settings
-        public bool AutoSave { get; set; } = true;
-        public int AutoSaveIntervalMinutes { get; set; } = 5;
-        public int TimeProgressionSpeed { get; set; } = 1;
-        public bool ShowTips { get; set; } = true;
-
-        // Audio settings
+        public bool EnableAutoSave { get; set; } = true;
+        public int AutoSaveInterval { get; set; } = 5; // Minutes
+        public int TimeProgressionSpeed { get; set; } = 1; // 1x, 2x, 5x, 10x
         public bool PlaySounds { get; set; } = true;
-        public bool PlayMusic { get; set; } = true;
         public float SoundVolume { get; set; } = 0.8f;
+        public bool PlayMusic { get; set; } = true;
         public float MusicVolume { get; set; } = 0.5f;
-
-        // Interface settings
-        public int ThemeIndex { get; set; } = 0;
-
-        private GameSettings()
-        {
-            // Private constructor to enforce singleton pattern
-        }
+        public bool ShowTips { get; set; } = true;
+        public string Theme { get; set; } = "Forest Green";
 
         public void Save()
         {
             try
             {
-                string settingsPath = GetSettingsFilePath();
-                string? directoryPath = Path.GetDirectoryName(settingsPath);
-
-                if (!string.IsNullOrEmpty(directoryPath) && !Directory.Exists(directoryPath))
-                {
-                    Directory.CreateDirectory(directoryPath);
-                }
-
-                string json = JsonSerializer.Serialize(this, new JsonSerializerOptions
-                {
-                    WriteIndented = true
-                });
-
-                File.WriteAllText(settingsPath, json);
+                Directory.CreateDirectory(Path.GetDirectoryName(_settingsFilePath) ?? string.Empty);
+                string json = JsonSerializer.Serialize(this);
+                File.WriteAllText(_settingsFilePath, json);
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"Error saving settings: {ex.Message}");
+                // Silently fail, use defaults
             }
         }
 
-        private static GameSettings Load()
+        private static GameSettings LoadSettings()
         {
             try
             {
-                string settingsPath = GetSettingsFilePath();
-
-                if (File.Exists(settingsPath))
+                if (File.Exists(_settingsFilePath))
                 {
-                    string json = File.ReadAllText(settingsPath);
-                    GameSettings? settings = JsonSerializer.Deserialize<GameSettings>(json);
-
-                    if (settings != null)
-                    {
-                        return settings;
-                    }
+                    string json = File.ReadAllText(_settingsFilePath);
+                    var settings = JsonSerializer.Deserialize<GameSettings>(json);
+                    return settings ?? new GameSettings();
                 }
             }
-            catch (Exception ex)
+            catch (Exception)
             {
-                Console.WriteLine($"Error loading settings: {ex.Message}");
+                // Silently fail, use defaults
             }
 
-            // Return default settings if loading fails
             return new GameSettings();
-        }
-
-        private static string GetSettingsFilePath()
-        {
-            string appDataPath = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "BonsaiGotchiGame");
-
-            return Path.Combine(appDataPath, "settings.json");
         }
     }
 }

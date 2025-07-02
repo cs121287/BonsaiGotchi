@@ -137,11 +137,11 @@ namespace BonsaiGotchiGame.ViewModels
                 // Set up auto-save timer
                 _autoSaveTimer = new DispatcherTimer
                 {
-                    Interval = TimeSpan.FromMinutes(GameSettings.Instance?.AutoSaveIntervalMinutes ?? 5)
+                    Interval = TimeSpan.FromMinutes(GameSettings.Instance?.AutoSaveInterval ?? 5)
                 };
                 _autoSaveTimer.Tick += AutoSaveTimerTick;
 
-                if ((GameSettings.Instance?.AutoSave ?? true) && !_safeMode)
+                if ((GameSettings.Instance?.EnableAutoSave ?? true) && !_safeMode)
                 {
                     _autoSaveTimer.Start();
                 }
@@ -336,7 +336,7 @@ namespace BonsaiGotchiGame.ViewModels
 
             try
             {
-                if (GameSettings.Instance?.AutoSave ?? true)
+                if (GameSettings.Instance?.EnableAutoSave ?? true)
                 {
                     SaveBonsai();
                 }
@@ -535,9 +535,9 @@ namespace BonsaiGotchiGame.ViewModels
                 // Update timers based on settings
                 if (_autoSaveTimer != null)
                 {
-                    if (GameSettings.Instance?.AutoSave ?? true)
+                    if (GameSettings.Instance?.EnableAutoSave ?? true)
                     {
-                        _autoSaveTimer.Interval = TimeSpan.FromMinutes(GameSettings.Instance?.AutoSaveIntervalMinutes ?? 5);
+                        _autoSaveTimer.Interval = TimeSpan.FromMinutes(GameSettings.Instance?.AutoSaveInterval ?? 5);
                         _autoSaveTimer.Start();
                     }
                     else

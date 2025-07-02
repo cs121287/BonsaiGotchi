@@ -76,7 +76,7 @@
                 <!-- Left: Status bars -->
                 <ColumnDefinition Width="*"/>
                 <!-- Center: Bonsai sprite -->
-                <ColumnDefinition Width="200"/>
+                <ColumnDefinition Width="220"/>
                 <!-- Right: Action buttons -->
             </Grid.ColumnDefinitions>
 
@@ -85,53 +85,49 @@
                     Background="White"
                     BorderBrush="#E0E0E0"
                     BorderThickness="1"
-                    Margin="12,12,12,99">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" Margin="0,0,0,84">
+                    Margin="12">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel Margin="10">
-                        <!-- Bonsai Name and Age -->
+                        <!-- Bonsai Name and Level -->
                         <TextBlock Text="{Binding Bonsai.Name}" 
                                  FontWeight="Bold"
                                  FontSize="18"/>
-                        <TextBlock Text="{Binding Bonsai.Age, StringFormat=Age: {0} days}"
-                                 Foreground="Gray"
+                        <TextBlock Text="{Binding Bonsai.LevelDisplay}"
+                                 Foreground="#4CAF50"
+                                 FontWeight="SemiBold"
                                  FontSize="14" 
-                                 Margin="0,4,0,12"/>
+                                 Margin="0,4,0,0"/>
+                        <TextBlock Text="{Binding Bonsai.GrowthStageDisplay, StringFormat=Stage: {0}}"
+                                 Foreground="#795548"
+                                 FontSize="12" 
+                                 Margin="0,2,0,12"/>
 
-                        <!-- Health Stat -->
-                        <Border x:Name="HealthStatPanel"
-                                Margin="0,4" 
-                                BorderBrush="#E0E0E0" 
-                                BorderThickness="1" 
-                                Padding="8">
+                        <!-- Mood Display -->
+                        <Border Background="#F5F5F5" CornerRadius="4" Padding="8" Margin="0,0,0,8">
                             <Grid>
-                                <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                    <RowDefinition Height="Auto"/>
-                                </Grid.RowDefinitions>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="😊" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <StackPanel Grid.Column="1">
+                                    <TextBlock Text="{Binding Bonsai.MoodDisplay, StringFormat=Mood: {0}}" FontWeight="SemiBold"/>
+                                    <ProgressBar Value="{Binding Bonsai.Mood}" Maximum="100" Height="8" Margin="0,4,0,0"
+                                                 Foreground="#FF9800"/>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
 
-                                <Grid Grid.Row="0">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="Auto"/>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="🌿" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="Health" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
-                                    <TextBlock Grid.Column="2" 
-                                           Text="{Binding Bonsai.Health, StringFormat={}{0}%}" 
-                                           FontWeight="Bold"
-                                           FontSize="14"
-                                           Margin="0,4"/>
-                                </Grid>
-
-                                <ProgressBar x:Name="HealthProgressBar"
-                                         Grid.Row="2" 
-                                         Value="{Binding Bonsai.Health}" 
-                                         Foreground="#4CAF50" 
-                                         Maximum="100" 
-                                         Height="15"
-                                         Margin="0,8,0,0"/>
+                        <!-- Health Condition Display -->
+                        <Border Background="#F5F5F5" CornerRadius="4" Padding="8" Margin="0,0,0,8">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="🏥" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" Text="{Binding Bonsai.HealthConditionDisplay, StringFormat=Condition: {0}}" 
+                                          FontWeight="SemiBold" VerticalAlignment="Center"/>
                             </Grid>
                         </Border>
 
@@ -143,7 +139,6 @@
                                 Padding="8">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
@@ -164,7 +159,7 @@
                                 </Grid>
 
                                 <ProgressBar x:Name="WaterProgressBar"
-                                         Grid.Row="2" 
+                                         Grid.Row="1" 
                                          Value="{Binding Bonsai.Water}" 
                                          Foreground="#2196F3" 
                                          Maximum="100" 
@@ -173,15 +168,14 @@
                             </Grid>
                         </Border>
 
-                        <!-- Growth Stat -->
-                        <Border x:Name="GrowthStatPanel"
+                        <!-- Health Stat -->
+                        <Border x:Name="HealthStatPanel"
                                 Margin="0,4" 
                                 BorderBrush="#E0E0E0" 
                                 BorderThickness="1" 
                                 Padding="8">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
@@ -192,19 +186,19 @@
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock Grid.Column="0" Text="🌱" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
-                                    <TextBlock Grid.Column="1" Text="Growth" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="0" Text="🌿" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Health" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
                                     <TextBlock Grid.Column="2" 
-                                           Text="{Binding Bonsai.Growth, StringFormat={}{0}%}" 
+                                           Text="{Binding Bonsai.Health, StringFormat={}{0}%}" 
                                            FontWeight="Bold"
                                            FontSize="14"
                                            Margin="0,4"/>
                                 </Grid>
 
-                                <ProgressBar x:Name="GrowthProgressBar"
-                                         Grid.Row="2" 
-                                         Value="{Binding Bonsai.Growth}" 
-                                         Foreground="#FFC107" 
+                                <ProgressBar x:Name="HealthProgressBar"
+                                         Grid.Row="1" 
+                                         Value="{Binding Bonsai.Health}" 
+                                         Foreground="#4CAF50" 
                                          Maximum="100" 
                                          Height="15"
                                          Margin="0,8,0,0"/>
@@ -219,7 +213,6 @@
                                 Padding="8">
                             <Grid>
                                 <Grid.RowDefinitions>
-                                    <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                     <RowDefinition Height="Auto"/>
                                 </Grid.RowDefinitions>
@@ -240,7 +233,7 @@
                                 </Grid>
 
                                 <ProgressBar x:Name="EnergyProgressBar"
-                                         Grid.Row="2" 
+                                         Grid.Row="1" 
                                          Value="{Binding Bonsai.Energy}" 
                                          Foreground="#FF5722" 
                                          Maximum="100" 
@@ -249,7 +242,148 @@
                             </Grid>
                         </Border>
 
-                        <!-- Journal in the status panel -->
+                        <!-- Hunger Stat (New) -->
+                        <Border x:Name="HungerStatPanel"
+                                Margin="0,4" 
+                                BorderBrush="#E0E0E0" 
+                                BorderThickness="1" 
+                                Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="🍔" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Hunger" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" 
+                                           Text="{Binding Bonsai.Hunger, StringFormat={}{0}%}" 
+                                           FontWeight="Bold"
+                                           FontSize="14"
+                                           Margin="0,4"/>
+                                </Grid>
+
+                                <ProgressBar x:Name="HungerProgressBar"
+                                         Grid.Row="1" 
+                                         Value="{Binding Bonsai.Hunger}" 
+                                         Foreground="#8D6E63" 
+                                         Maximum="100" 
+                                         Height="15"
+                                         Margin="0,8,0,0"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Cleanliness Stat (New) -->
+                        <Border x:Name="CleanlinessStatPanel"
+                                Margin="0,4" 
+                                BorderBrush="#E0E0E0" 
+                                BorderThickness="1" 
+                                Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="🧹" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Cleanliness" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" 
+                                           Text="{Binding Bonsai.Cleanliness, StringFormat={}{0}%}" 
+                                           FontWeight="Bold"
+                                           FontSize="14"
+                                           Margin="0,4"/>
+                                </Grid>
+
+                                <ProgressBar x:Name="CleanlinessProgressBar"
+                                         Grid.Row="1" 
+                                         Value="{Binding Bonsai.Cleanliness}" 
+                                         Foreground="#03A9F4" 
+                                         Maximum="100" 
+                                         Height="15"
+                                         Margin="0,8,0,0"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Growth Stat -->
+                        <Border x:Name="GrowthStatPanel"
+                                Margin="0,4" 
+                                BorderBrush="#E0E0E0" 
+                                BorderThickness="1" 
+                                Padding="8">
+                            <Grid>
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+
+                                <Grid Grid.Row="0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Grid.Column="0" Text="🌱" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="Growth" Foreground="Gray" FontSize="12" FontWeight="SemiBold"/>
+                                    <TextBlock Grid.Column="2" 
+                                           Text="{Binding Bonsai.Growth, StringFormat={}{0}%}" 
+                                           FontWeight="Bold"
+                                           FontSize="14"
+                                           Margin="0,4"/>
+                                </Grid>
+
+                                <ProgressBar x:Name="GrowthProgressBar"
+                                         Grid.Row="1" 
+                                         Value="{Binding Bonsai.Growth}" 
+                                         Foreground="#FFC107" 
+                                         Maximum="100" 
+                                         Height="15"
+                                         Margin="0,8,0,0"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- XP Multiplier Display -->
+                        <Border Background="#E8F5E9" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="⚡" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" 
+                                           Text="{Binding Bonsai.XPMultiplier, StringFormat=XP Multiplier: {0:P0}}" 
+                                           FontWeight="SemiBold" 
+                                           VerticalAlignment="Center"
+                                           Foreground="#673AB7"/>
+                            </Grid>
+                        </Border>
+
+                        <!-- Streak Display -->
+                        <Border Background="#E8F5E9" CornerRadius="4" Padding="8" Margin="0,8,0,0">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Text="🔥" FontSize="18" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Grid.Column="1" 
+                                           Text="{Binding Bonsai.ConsecutiveDaysGoodCare, StringFormat=Care Streak: {0} days}" 
+                                           FontWeight="SemiBold" 
+                                           VerticalAlignment="Center"
+                                           Foreground="#FF5722"/>
+                            </Grid>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -276,131 +410,364 @@
                                Height="1024"/>
 
                         <!-- Bonsai sprite layer -->
-                        <Canvas Width="512" Height="512">
+                        <Canvas Width="1024" Height="1024">
                             <Image x:Name="BonsaiImage" 
-                                   Width="512" 
-                                   Height="512"
+                                   Width="256" 
+                                   Height="256"
                                    RenderOptions.BitmapScalingMode="HighQuality"
-                                   Canvas.Left="0" 
-                                   Canvas.Top="196">
+                                   Canvas.Left="384" 
+                                   Canvas.Top="384">
                             </Image>
+
+                            <!-- Mood indicator (emoji that changes based on mood state) -->
+                            <Border x:Name="MoodIndicator" 
+                                    Canvas.Right="100" 
+                                    Canvas.Top="100"
+                                    Background="White"
+                                    BorderBrush="#E0E0E0"
+                                    BorderThickness="1"
+                                    CornerRadius="20"
+                                    Padding="8">
+                                <TextBlock x:Name="MoodEmoji" 
+                                           Text="😊" 
+                                           FontSize="24"/>
+                            </Border>
                         </Canvas>
+
+                        <!-- Level up animation container (hidden by default) -->
+                        <Grid x:Name="LevelUpDisplay" 
+                              Visibility="Collapsed"
+                              Background="#80000000">
+                            <Border Background="#FFFFFF"
+        Padding="20"
+        BorderBrush="#4CAF50"
+        BorderThickness="2"
+        CornerRadius="8">
+                                <StackPanel HorizontalAlignment="Center" 
+                VerticalAlignment="Center">
+                                    <TextBlock Text="LEVEL UP!" 
+                   FontSize="32" 
+                   FontWeight="Bold" 
+                   Foreground="#4CAF50" 
+                   HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="NewLevelText" 
+                   Text="Your bonsai reached level 2!" 
+                   FontSize="18" 
+                   Margin="0,10,0,20" 
+                   HorizontalAlignment="Center"/>
+                                    <TextBlock x:Name="NewStageText" 
+                   Text="New Stage: Sapling" 
+                   FontSize="18" 
+                   Foreground="#795548" 
+                   HorizontalAlignment="Center"/>
+                                    <Button Content="Continue" 
+                Margin="0,20,0,0" 
+                Padding="20,8" 
+                Background="#4CAF50"
+                Foreground="White"
+                Click="LevelUpContinue_Click"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
                     </Grid>
                 </Viewbox>
             </Border>
 
-            <!-- Right column: Action buttons -->
-            <Border Grid.Column="2"
-                    Background="#E8F5E9"
-                    BorderBrush="#E0E0E0"
-                    BorderThickness="1"
-                    Margin="6,12,12,99">
-                <StackPanel Margin="10">
-                    <TextBlock Text="Actions" 
-                               FontSize="18" 
-                               FontWeight="Bold" 
-                               Margin="0,0,0,12" 
-                               HorizontalAlignment="Center"/>
+            <!-- Right column: Action buttons and feeding -->
+            <Grid Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*"/>
+                    <!-- Actions -->
+                    <RowDefinition Height="Auto"/>
+                    <!-- Feeding section -->
+                </Grid.RowDefinitions>
 
-                    <!-- Water Button -->
-                    <Button x:Name="WaterButton"
-                            Background="#4CAF50"
-                            Foreground="White"
-                            Height="70" 
-                            Margin="0,4,0,16"
-                            IsEnabled="{Binding IsInteractionEnabled}"
-                            Click="Water_Click"
-                            ToolTip="Give your bonsai water to keep it hydrated">
-                        <StackPanel>
-                            <TextBlock Text="💧" FontSize="24" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Water" Margin="0,8,0,0" FontSize="14" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <!-- Prune Button -->
-                    <Button x:Name="PruneButton"
-                            Background="#4CAF50"
-                            Foreground="White"
-                            Height="70" 
-                            Margin="0,4,0,16"
-                            IsEnabled="{Binding IsInteractionEnabled}"
-                            Click="Prune_Click"
-                            ToolTip="Prune your bonsai to encourage healthy growth">
-                        <StackPanel>
-                            <TextBlock Text="✂️" FontSize="24" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Prune" Margin="0,8,0,0" FontSize="14" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <!-- Rest Button -->
-                    <Button x:Name="RestButton"
-                            Background="#4CAF50"
-                            Foreground="White"
-                            Height="70" 
-                            Margin="0,4,0,16"
-                            IsEnabled="{Binding IsInteractionEnabled}"
-                            Click="Rest_Click"
-                            ToolTip="Let your bonsai rest to recover energy">
-                        <StackPanel>
-                            <TextBlock Text="🌙" FontSize="24" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Rest" Margin="0,8,0,0" FontSize="14" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <!-- Fertilize Button -->
-                    <Button x:Name="FertilizeButton"
-                            Background="#4CAF50"
-                            Foreground="White"
-                            Height="70" 
-                            Margin="0,4,0,16"
-                            IsEnabled="{Binding IsInteractionEnabled}"
-                            Click="Fertilize_Click"
-                            ToolTip="Apply fertilizer to boost growth">
-                        <StackPanel>
-                            <TextBlock Text="🌱" FontSize="24" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Fertilize" Margin="0,8,0,0" FontSize="14" FontWeight="SemiBold"/>
-                        </StackPanel>
-                    </Button>
-
-                    <!-- Save Button -->
-                    <Button x:Name="SaveButton"
-                            Background="#795548"
-                            Foreground="White"
-                            Height="50" 
-                            Margin="0,20,0,0"
-                            Padding="0,8"
-                            Click="SaveGame_Click">
-                        <StackPanel>
-                            <TextBlock Text="💾" FontSize="18" HorizontalAlignment="Center"/>
-                            <TextBlock Text="Save Game" Margin="0,4,0,0" FontSize="12"/>
-                        </StackPanel>
-                    </Button>
-                </StackPanel>
-            </Border>
-            <Expander Header="Bonsai Journal" 
-                                  ExpandDirection="Down"
-                                  IsExpanded="False"
-                                  x:Name="JournalExpander"
-                                  Background="#E8F5E9"
-                                  BorderBrush="#A5D6A7"
-                                  BorderThickness="1" Margin="0,520,0,0" Grid.ColumnSpan="3">
-                <Border Background="White" MaxHeight="200">
+                <!-- Actions section -->
+                <Border Grid.Row="0"
+                        Background="#E8F5E9"
+                        BorderBrush="#E0E0E0"
+                        BorderThickness="1"
+                        Margin="6,12,12,6">
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
-                        <ItemsControl x:Name="JournalEntriesList" Margin="8">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <TextBlock Text="{Binding}" Margin="0,2" TextWrapping="Wrap"/>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
+                        <StackPanel Margin="10">
+                            <TextBlock Text="Actions" 
+                                       FontSize="18" 
+                                       FontWeight="Bold" 
+                                       Margin="0,0,0,12" 
+                                       HorizontalAlignment="Center"/>
+
+                            <!-- Primary Actions -->
+                            <StackPanel>
+                                <TextBlock Text="Primary Care" 
+                                           FontSize="14" 
+                                           FontWeight="SemiBold" 
+                                           Margin="0,0,0,4" 
+                                           Foreground="#4CAF50"/>
+
+                                <!-- Water Button -->
+                                <Button x:Name="WaterButton"
+                                        Background="#4CAF50"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanWater}"
+                                        Click="Water_Click"
+                                        ToolTip="Give your bonsai water to keep it hydrated">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="💧" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Water" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Prune Button -->
+                                <Button x:Name="PruneButton"
+                                        Background="#4CAF50"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanPrune}"
+                                        Click="Prune_Click"
+                                        ToolTip="Prune your bonsai to encourage healthy growth">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="✂️" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Prune" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Rest Button -->
+                                <Button x:Name="RestButton"
+                                        Background="#4CAF50"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanRest}"
+                                        Click="Rest_Click"
+                                        ToolTip="Let your bonsai rest to recover energy">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🌙" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Rest" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Fertilize Button -->
+                                <Button x:Name="FertilizeButton"
+                                        Background="#4CAF50"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,12"
+                                        IsEnabled="{Binding Bonsai.CanFertilize}"
+                                        Click="Fertilize_Click"
+                                        ToolTip="Apply fertilizer to boost growth">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🌱" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Fertilize" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Extended Actions -->
+                            <StackPanel>
+                                <TextBlock Text="Activities" 
+                                           FontSize="14" 
+                                           FontWeight="SemiBold" 
+                                           Margin="0,0,0,4" 
+                                           Foreground="#673AB7"/>
+
+                                <!-- Clean Area Button -->
+                                <Button x:Name="CleanAreaButton"
+                                        Background="#673AB7"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanCleanArea}"
+                                        Click="CleanArea_Click"
+                                        ToolTip="Clean the bonsai's area to improve cleanliness">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🧹" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Clean Area" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Light Exercise Button -->
+                                <Button x:Name="ExerciseButton"
+                                        Background="#673AB7"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanExercise}"
+                                        Click="Exercise_Click"
+                                        ToolTip="Light exercise to improve health">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🏃" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Light Exercise" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Intense Training Button -->
+                                <Button x:Name="TrainingButton"
+                                        Background="#673AB7"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanTrain}"
+                                        Click="Training_Click"
+                                        ToolTip="Intense training for significant health boost (requires high energy)">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🏋️" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Intense Training" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Play Button -->
+                                <Button x:Name="PlayButton"
+                                        Background="#673AB7"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,4"
+                                        IsEnabled="{Binding Bonsai.CanPlay}"
+                                        Click="Play_Click"
+                                        ToolTip="Play with your bonsai to improve mood">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🎮" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Play" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+
+                                <!-- Meditate Button -->
+                                <Button x:Name="MeditateButton"
+                                        Background="#673AB7"
+                                        Foreground="White"
+                                        Height="48" 
+                                        Margin="0,4,0,12"
+                                        IsEnabled="{Binding Bonsai.CanMeditate}"
+                                        Click="Meditate_Click"
+                                        ToolTip="Meditate with your bonsai to improve mood and energy">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🧘" FontSize="20" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Meditate" Margin="10,0,0,0" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                            </StackPanel>
+
+                            <!-- Save Button -->
+                            <Button x:Name="SaveButton"
+                                    Background="#795548"
+                                    Foreground="White"
+                                    Height="40" 
+                                    Margin="0,12,0,0"
+                                    Click="SaveGame_Click">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="💾" FontSize="18" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Save Game" Margin="10,0,0,0" FontSize="14" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+                    </ScrollViewer>
+                </Border>
+
+                <!-- Feeding section -->
+                <Expander Grid.Row="1"
+                          Header="Feeding Options"
+                          IsExpanded="False"
+                          Background="#FFF3E0"
+                          BorderBrush="#FFB74D"
+                          BorderThickness="1"
+                          Margin="6,0,12,12">
+                    <StackPanel Margin="10">
+                        <TextBlock Text="Select Food:" FontWeight="SemiBold" Margin="0,0,0,8"/>
+
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <!-- Basic Fertilizer -->
+                            <Button Grid.Row="0" Grid.Column="0" 
+                                    Content="Basic Fertilizer 🌿" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedBasicFertilizer_Click"
+                                    ToolTip="Balanced nutrients (Health +5, Hunger -20)"/>
+
+                            <!-- Burger -->
+                            <Button Grid.Row="0" Grid.Column="1" 
+                                    Content="Burger 🍔" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedBurger_Click"
+                                    ToolTip="Tasty but unhealthy (Mood +3, Health -5, Hunger -30)"/>
+
+                            <!-- Ice Cream -->
+                            <Button Grid.Row="1" Grid.Column="0" 
+                                    Content="Ice Cream 🍦" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedIceCream_Click"
+                                    ToolTip="Very tasty but very unhealthy (Mood +15, Health -10, Hunger -15)"/>
+
+                            <!-- Vegetables -->
+                            <Button Grid.Row="1" Grid.Column="1" 
+                                    Content="Vegetables 🥦" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedVegetables_Click"
+                                    ToolTip="Healthy but not tasty (Mood -10 initially, Health +15, Hunger -25)"/>
+
+                            <!-- Premium Nutrients -->
+                            <Button Grid.Row="2" Grid.Column="0" 
+                                    Content="Premium Nutrients 🧪" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedPremiumNutrients_Click"
+                                    ToolTip="High quality food (Mood +10, Health +20, Hunger -40)"/>
+
+                            <!-- Special Treat -->
+                            <Button Grid.Row="2" Grid.Column="1" 
+                                    Content="Special Treat 🍭" 
+                                    Margin="3" 
+                                    Height="36" 
+                                    Click="FeedSpecialTreat_Click"
+                                    ToolTip="Super tasty treat (Mood +25, Health -5, Hunger -10, Energy +30)"/>
+                        </Grid>
+                    </StackPanel>
+                </Expander>
+            </Grid>
+        </Grid>
+
+        <!-- Journal/notifications panel -->
+        <Expander Grid.Row="2" 
+                  Header="Bonsai Journal" 
+                  ExpandDirection="Up"
+                  IsExpanded="False"
+                  x:Name="JournalExpander"
+                  Margin="12,0,12,12"
+                  Background="#E8F5E9"
+                  BorderBrush="#A5D6A7"
+                  BorderThickness="1">
+            <Border Background="White" MaxHeight="200">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="JournalEntriesList" Margin="8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Margin="0,2" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                        <ItemsControl.Items>
                             <TextBlock Text="[Day 1] Your bonsai was born!" Foreground="#2E7D32"/>
                             <TextBlock Text="[Day 1] You watered your bonsai for the first time." Foreground="#1976D2"/>
                             <TextBlock Text="[Day 2] Your bonsai is growing nicely!" Foreground="#388E3C"/>
                             <TextBlock Text="[Day 3] You applied fertilizer to boost growth." Foreground="#F57C00"/>
                             <TextBlock Text="[Day 4] Your bonsai entered its first bloom cycle!" Foreground="#D81B60"/>
-                        </ItemsControl>
-                    </ScrollViewer>
-                </Border>
-            </Expander>
-        </Grid>
+                        </ItemsControl.Items>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Expander>
     </Grid>
 </Window>

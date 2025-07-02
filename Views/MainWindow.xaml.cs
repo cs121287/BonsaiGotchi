@@ -1,501 +1,477 @@
-using System;
+﻿using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.CompilerServices;
+using System.Text.Json;
 using System.Windows;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
-using System.Windows.Controls;
-using BonsaiGotchiGame.ViewModels;
-using BonsaiGotchiGame.Services;
 using BonsaiGotchiGame.Models;
 using BonsaiGotchiGame.Views;
-using System.ComponentModel;
 
 namespace BonsaiGotchiGame
 {
-    public partial class MainWindow : Window, IDisposable
+    public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        // Fields
-        private MainViewModel? _viewModel;
-        private SpriteAnimator? _spriteAnimator;
-        private BackgroundSpriteAnimator? _backgroundSpriteAnimator;
-        private TextBlock? _statusTextBlock;
-        private bool _disposed = false;
+        private readonly string _saveFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BonsaiGotchiGame", "save.json");
+        private readonly DispatcherTimer _gameTimer = new DispatcherTimer();
+        private readonly ObservableCollection<string> _journalEntries = new ObservableCollection<string>();
+        private string _statusMessage = "Your bonsai is doing well.";
+        private Bonsai _bonsai = new Bonsai("My Bonsai");
+        private BitmapImage? _currentBackgroundImage;
+        private bool _isInteractionEnabled = true;
+        private int _previousLevel = 1;
+        private MoodState _previousMoodState = MoodState.Content;
+        private GrowthStage _previousGrowthStage = GrowthStage.Seedling;
+        private HealthCondition _previousHealthCondition = HealthCondition.Healthy;
+
+        public Bonsai Bonsai
+        {
+            get => _bonsai;
+            set { _bonsai = value; OnPropertyChanged(); }
+        }
+
+        public string StatusMessage
+        {
+            get => _statusMessage;
+            set { _statusMessage = value; OnPropertyChanged(); }
+        }
+
+        public BitmapImage? CurrentBackgroundImage
+        {
+            get => _currentBackgroundImage;
+            set { _currentBackgroundImage = value; OnPropertyChanged(); }
+        }
+
+        public bool IsInteractionEnabled
+        {
+            get => _isInteractionEnabled;
+            set { _isInteractionEnabled = value; OnPropertyChanged(); }
+        }
 
         public MainWindow()
         {
-            try
-            {
-                InitializeComponent();
+            InitializeComponent();
+            DataContext = this;
 
-                // Find the status text block for animations
-                _statusTextBlock = FindName("StatusTextBlock") as TextBlock;
+            // Initialize game timer
+            _gameTimer.Tick += OnGameTimerTick;
+            _gameTimer.Interval = TimeSpan.FromSeconds(1);
+            _gameTimer.Start();
 
-                // Ensure window is visible and positioned on-screen
-                EnsureWindowIsOnScreen();
+            // Load game or create new
+            LoadGameOrCreateNew();
 
-                // Verify image directory exists
-                CheckImageDirectory();
+            // Initialize background image
+            UpdateBackgroundImage();
 
-                // Create view model with exception handling
-                try
-                {
-                    _viewModel = new MainViewModel();
-                    DataContext = _viewModel;
-                }
-                catch (Exception ex)
-                {
-                    MessageBox.Show($"Error initializing view model: {ex.Message}\n\nStack trace: {ex.StackTrace}",
-                        "Initialization Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    _viewModel = new MainViewModel(true); // Create with safe mode
-                    DataContext = _viewModel;
-                }
+            // Initialize bonsai image
+            UpdateBonsaiImage();
 
-                // Initialize sprite animators after controls are loaded
-                this.Loaded += MainWindow_Loaded;
+            // Set mood emoji
+            UpdateMoodEmoji();
 
-                // Add closing event handler
-                this.Closing += MainWindow_Closing;
+            // Set journal entries
+            JournalEntriesList.ItemsSource = _journalEntries;
 
-                // Explicitly set window to be visible
-                this.Visibility = Visibility.Visible;
-                this.Show();
-                this.Activate();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"A critical error occurred during startup: {ex.Message}\n\nStack trace: {ex.StackTrace}",
-                    "Critical Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            // Store initial values for tracking changes
+            _previousLevel = Bonsai.Level;
+            _previousMoodState = Bonsai.MoodState;
+            _previousGrowthStage = Bonsai.GrowthStage;
+            _previousHealthCondition = Bonsai.HealthCondition;
+
+            // Add initial journal entry
+            AddJournalEntry($"Welcome to BonsaiGotchi! Your {Bonsai.GrowthStage} is ready to grow.");
         }
 
-        private void MainWindow_Loaded(object sender, RoutedEventArgs e)
+        private void OnGameTimerTick(object? sender, EventArgs e)
         {
-            try
+            Bonsai.UpdateState();
+            UpdateBackgroundImage();
+            UpdateBonsaiImage();
+            UpdateStatusMessage();
+            UpdateMoodEmoji();
+
+            // Check for level up
+            if (Bonsai.Level > _previousLevel)
             {
-                // Initialize bonsai sprite animation
-                _spriteAnimator = new SpriteAnimator(BonsaiImage);
+                ShowLevelUpAnimation();
+                _previousLevel = Bonsai.Level;
+            }
 
-                // Initialize background sprite animation
-                _backgroundSpriteAnimator = new BackgroundSpriteAnimator(BackgroundImage);
+            // Check for mood state change
+            if (Bonsai.MoodState != _previousMoodState)
+            {
+                AddJournalEntry($"Your bonsai's mood changed to {Bonsai.MoodState}.");
+                _previousMoodState = Bonsai.MoodState;
+            }
 
-                // Animate the controls to fade in
-                AnimateInitialLoad();
+            // Check for growth stage change
+            if (Bonsai.GrowthStage != _previousGrowthStage)
+            {
+                AddJournalEntry($"Your bonsai has evolved into a {Bonsai.GrowthStage}!");
+                _previousGrowthStage = Bonsai.GrowthStage;
+            }
 
-                // Set up journal expander animations
-                var journalExpander = FindName("JournalExpander") as Expander;
-                if (journalExpander != null)
+            // Check for health condition change
+            if (Bonsai.HealthCondition != _previousHealthCondition)
+            {
+                if (Bonsai.HealthCondition == HealthCondition.Healthy)
                 {
-                    journalExpander.Expanded += ToggleJournalExpander;
-                }
-
-                // Update background for current time
-                if (_viewModel?.Bonsai != null)
-                {
-                    _backgroundSpriteAnimator?.UpdateBackground(_viewModel.Bonsai.GameHour);
-                }
-
-                // Subscribe to sprite state changes
-                if (_viewModel != null)
-                {
-                    _viewModel.BonsaiStateChanged += ViewModel_BonsaiStateChanged;
-                    _viewModel.PropertyChanged += ViewModel_PropertyChanged;
-
-                    // Initial animation based on current state
-                    if (_viewModel.Bonsai != null && _spriteAnimator != null)
-                    {
-                        _spriteAnimator.UpdateAnimation(_viewModel.Bonsai.CurrentState);
-                    }
-                    else if (_spriteAnimator != null)
-                    {
-                        // Default animation if bonsai is null
-                        _spriteAnimator.UpdateAnimation(BonsaiState.Idle);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error initializing animation: {ex.Message}",
-                    "Animation Error", MessageBoxButton.OK, MessageBoxImage.Warning);
-            }
-        }
-
-        private void ToggleJournalExpander(object? sender, RoutedEventArgs e)
-        {
-            var expander = sender as Expander;
-            if (expander != null)
-            {
-                if (expander.IsExpanded)
-                {
-                    // Journal is expanding
-                    var journalList = FindName("JournalEntriesList") as ItemsControl;
-                    if (journalList != null)
-                    {
-                        AnimationService.FadeInElement(journalList, TimeSpan.FromMilliseconds(500));
-                    }
-                }
-            }
-        }
-
-        private void AnimateInitialLoad()
-        {
-            try
-            {
-                // Find all the main elements to animate with proper null safety
-                UIElement?[] elements = new UIElement?[5];
-                elements[0] = FindName("HeaderBar") as UIElement;
-                elements[1] = FindName("StatsPanel") as UIElement;
-                elements[2] = FindName("BonsaiDisplayArea") as UIElement;
-                elements[3] = FindName("ActionButtonsPanel") as UIElement;
-                elements[4] = FindName("SaveButtonPanel") as UIElement;
-
-                // Stagger the animations
-                for (int i = 0; i < elements.Length; i++)
-                {
-                    if (elements[i] != null)
-                    {
-                        AnimationService.FadeInElement(
-                            elements[i],
-                            TimeSpan.FromMilliseconds(300 + (i * 100)));
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in AnimateInitialLoad: {ex.Message}");
-            }
-        }
-
-        private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == "StatusMessage" && _statusTextBlock != null)
-            {
-                AnimationService.AnimateStatusMessage(_statusTextBlock);
-            }
-        }
-
-        private void ViewModel_BonsaiStateChanged(object? sender, BonsaiState state)
-        {
-            _spriteAnimator?.UpdateAnimation(state);
-
-            // Animate status message
-            if (_statusTextBlock != null)
-            {
-                AnimationService.AnimateStatusMessage(_statusTextBlock);
-            }
-
-            // Check for critical states and add visual feedback
-            if (state == BonsaiState.Wilting || state == BonsaiState.Unhealthy || state == BonsaiState.Thirsty)
-            {
-                // Find the appropriate stat to pulse based on state
-                UIElement? elementToPulse = null;
-
-                if (state == BonsaiState.Wilting)
-                {
-                    elementToPulse = this.FindName("HealthStatPanel") as UIElement;
-                }
-                else if (state == BonsaiState.Thirsty)
-                {
-                    elementToPulse = this.FindName("WaterStatPanel") as UIElement;
-                }
-                else if (state == BonsaiState.Unhealthy)
-                {
-                    elementToPulse = this.FindName("GrowthStatPanel") as UIElement;
-                }
-
-                if (elementToPulse != null)
-                {
-                    AnimationService.PulseElement(elementToPulse, TimeSpan.FromSeconds(3));
-                }
-            }
-        }
-
-        private void MainWindow_Closing(object? sender, CancelEventArgs e)
-        {
-            try
-            {
-                // Save game data before closing
-                _viewModel?.SaveBonsai();
-
-                // Clean up resources
-                CleanupResources();
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error during window closing: {ex.Message}");
-            }
-        }
-
-        private void CleanupResources()
-        {
-            // Unsubscribe from events
-            if (_viewModel != null)
-            {
-                _viewModel.BonsaiStateChanged -= ViewModel_BonsaiStateChanged;
-                _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
-            }
-
-            // Stop animation timers
-            _spriteAnimator?.Stop();
-
-            // Clean up view model resources
-            if (_viewModel is IDisposable disposableViewModel)
-            {
-                disposableViewModel.Dispose();
-            }
-
-            // Clean up sprite animator resources
-            if (_spriteAnimator is IDisposable disposableSpriteAnimator)
-            {
-                disposableSpriteAnimator.Dispose();
-            }
-
-            // Clean up background sprite animator
-            _backgroundSpriteAnimator?.Dispose();
-        }
-
-        private static void CheckImageDirectory()
-        {
-            try
-            {
-                // Check relative path for images
-                string imagesDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Images");
-                if (!Directory.Exists(imagesDirectory))
-                {
-                    MessageBox.Show($"Images directory not found at: {imagesDirectory}\n\nThe application may not display sprites correctly.",
-                        "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    AddJournalEntry($"Your bonsai has recovered and is now healthy!");
                 }
                 else
                 {
-                    // Check for specific image files
-                    string idleImagePath = Path.Combine(imagesDirectory, "idle.png");
-                    if (!File.Exists(idleImagePath))
-                    {
-                        MessageBox.Show($"Default image not found: {idleImagePath}\n\nThe application may not display sprites correctly.",
-                            "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    }
+                    AddJournalEntry($"Your bonsai has developed {Bonsai.HealthCondition}! Take care of it!");
                 }
-
-                // Also check backgrounds directory
-                string backgroundsDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Backgrounds");
-                if (!Directory.Exists(backgroundsDirectory))
-                {
-                    MessageBox.Show($"Backgrounds directory not found at: {backgroundsDirectory}\n\nThe application may not display backgrounds correctly.",
-                        "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                _previousHealthCondition = Bonsai.HealthCondition;
             }
-            catch (Exception ex)
+
+            // Check for auto-save
+            if (GameSettings.Instance.EnableAutoSave &&
+                DateTime.Now.Minute % GameSettings.Instance.AutoSaveInterval == 0 &&
+                DateTime.Now.Second == 0)
             {
-                Console.WriteLine($"Error checking image directory: {ex.Message}");
+                SaveGame();
             }
         }
 
-        private void EnsureWindowIsOnScreen()
+        private void UpdateBackgroundImage()
         {
-            // Set reasonable default window position and size
-            this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-
-            // Default size if not already set
-            if (this.Height <= 0) this.Height = 600;
-            if (this.Width <= 0) this.Width = 400;
-
-            // Handle case where window might be off-screen
-            this.Loaded += (s, e) =>
+            string timeOfDay = Bonsai.GameHour switch
             {
-                try
-                {
-                    var workingArea = SystemParameters.WorkArea;
-
-                    // If window is completely off-screen, center it
-                    if (this.Left < 0 || this.Left + this.Width > workingArea.Width ||
-                        this.Top < 0 || this.Top + this.Height > workingArea.Height)
-                    {
-                        this.Left = (workingArea.Width - this.Width) / 2;
-                        this.Top = (workingArea.Height - this.Height) / 2;
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error positioning window: {ex.Message}");
-                    // Fallback to center position
-                    this.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                }
+                >= 6 and < 10 => "morning",
+                >= 10 and < 16 => "day",
+                >= 16 and < 20 => "evening",
+                _ => "night"
             };
 
-            // Make sure window state is normal (not minimized)
-            this.WindowState = WindowState.Normal;
+            string imagePath = $"/Images/background_{timeOfDay}.jpg";
+            try
+            {
+                CurrentBackgroundImage = new BitmapImage(new Uri($"pack://application:,,,{imagePath}"));
+            }
+            catch (Exception)
+            {
+                // Use default if image not found
+                CurrentBackgroundImage = null;
+            }
         }
 
-        // Event handler for the Water button click
+        private void UpdateBonsaiImage()
+        {
+            try
+            {
+                // Just use the fallback image directly
+                BonsaiImage.Source = new BitmapImage(new Uri("pack://application:,,,/Assets/Images/fallback.png"));
+            }
+            catch (Exception ex)
+            {
+                // If the fallback fails, show an error
+                MessageBox.Show($"Failed to load bonsai image: {ex.Message}", "Image Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateMoodEmoji()
+        {
+            MoodEmoji.Text = Bonsai.MoodState switch
+            {
+                MoodState.Ecstatic => "😍",
+                MoodState.Happy => "😊",
+                MoodState.Content => "🙂",
+                MoodState.Neutral => "😐",
+                MoodState.Unhappy => "🙁",
+                MoodState.Sad => "😢",
+                MoodState.Miserable => "😭",
+                _ => "🙂"
+            };
+        }
+
+        private void UpdateStatusMessage()
+        {
+            if (Bonsai.HealthCondition != HealthCondition.Healthy)
+            {
+                StatusMessage = $"Your bonsai is suffering from {Bonsai.HealthCondition}!";
+                return;
+            }
+
+            if (Bonsai.Water < 20)
+            {
+                StatusMessage = "Your bonsai is very thirsty! Water it soon.";
+            }
+            else if (Bonsai.Energy < 20)
+            {
+                StatusMessage = "Your bonsai is exhausted! Let it rest.";
+            }
+            else if (Bonsai.Hunger > 80)
+            {
+                StatusMessage = "Your bonsai is starving! Feed it soon.";
+            }
+            else if (Bonsai.Cleanliness < 30)
+            {
+                StatusMessage = "Your bonsai's area needs cleaning!";
+            }
+            else
+            {
+                StatusMessage = Bonsai.MoodState switch
+                {
+                    MoodState.Ecstatic => "Your bonsai is ecstatic! It's thriving beautifully.",
+                    MoodState.Happy => "Your bonsai is happy and growing well.",
+                    MoodState.Content => "Your bonsai is content and healthy.",
+                    MoodState.Neutral => "Your bonsai is doing okay.",
+                    MoodState.Unhappy => "Your bonsai seems a bit unhappy.",
+                    MoodState.Sad => "Your bonsai is sad and needs attention.",
+                    MoodState.Miserable => "Your bonsai is miserable! It needs urgent care!",
+                    _ => "Your bonsai is growing."
+                };
+            }
+        }
+
+        private void ShowLevelUpAnimation()
+        {
+            // Set level up display content
+            NewLevelText.Text = $"Your bonsai reached level {Bonsai.Level}!";
+            NewStageText.Text = $"Growth Stage: {Bonsai.GrowthStage}";
+
+            // Show the level up overlay
+            LevelUpDisplay.Visibility = Visibility.Visible;
+
+            // Disable interactions while showing level up
+            IsInteractionEnabled = false;
+
+            // Add journal entry
+            AddJournalEntry($"Level Up! Your bonsai is now level {Bonsai.Level}!");
+
+            // Play a sound if enabled
+            if (GameSettings.Instance.PlaySounds)
+            {
+                // Play level up sound
+                // System.Media.SystemSounds.Asterisk.Play();
+            }
+        }
+
+        private void LevelUpContinue_Click(object sender, RoutedEventArgs e)
+        {
+            // Hide level up display and re-enable interactions
+            LevelUpDisplay.Visibility = Visibility.Collapsed;
+            IsInteractionEnabled = true;
+        }
+
+        private void LoadGameOrCreateNew()
+        {
+            try
+            {
+                if (File.Exists(_saveFilePath))
+                {
+                    string json = File.ReadAllText(_saveFilePath);
+                    var savedBonsai = JsonSerializer.Deserialize<Bonsai>(json);
+                    if (savedBonsai != null)
+                    {
+                        Bonsai = savedBonsai;
+                        AddJournalEntry("Game loaded successfully!");
+                        return;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading saved game: {ex.Message}\nStarting a new game instead.", "Load Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            }
+
+            // Create new game if loading failed
+            Bonsai = new Bonsai("My Bonsai");
+            Directory.CreateDirectory(Path.GetDirectoryName(_saveFilePath) ?? string.Empty);
+        }
+
+        private void AddJournalEntry(string entry)
+        {
+            string timeStamp = $"[Day {Bonsai.GameDay}, {Bonsai.GameHour:D2}:{Bonsai.GameMinute:D2}]";
+            _journalEntries.Insert(0, $"{timeStamp} {entry}");
+
+            // Limit journal entries to prevent memory issues
+            if (_journalEntries.Count > 100)
+            {
+                _journalEntries.RemoveAt(_journalEntries.Count - 1);
+            }
+        }
+
+        #region Action Button Handlers
         private void Water_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                _viewModel?.Water();
-
-                // Animate the water stat if we can find it
-                var waterBar = this.FindName("WaterProgressBar") as ProgressBar;
-                if (waterBar != null && _viewModel?.Bonsai != null)
-                {
-                    AnimationService.AnimateProgressChange(waterBar,
-                        waterBar.Value, _viewModel.Bonsai.Water);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error watering bonsai: {ex.Message}",
-                    "Operation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.GiveWater();
+            AddJournalEntry("You watered your bonsai.");
+            UpdateStatusMessage();
+            UpdateBonsaiImage();
         }
 
-        // Event handler for the Prune button click
         private void Prune_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                _viewModel?.Prune();
-
-                // Animate the growth stat if we can find it
-                var growthBar = this.FindName("GrowthProgressBar") as ProgressBar;
-                if (growthBar != null && _viewModel?.Bonsai != null)
-                {
-                    AnimationService.AnimateProgressChange(growthBar,
-                        growthBar.Value, _viewModel.Bonsai.Growth);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error pruning bonsai: {ex.Message}",
-                    "Operation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.Prune();
+            AddJournalEntry("You pruned your bonsai.");
+            UpdateStatusMessage();
+            UpdateBonsaiImage();
         }
 
-        // Event handler for the Rest button click
         private void Rest_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                _viewModel?.Rest();
-
-                // Animate the energy stat if we can find it
-                var energyBar = this.FindName("EnergyProgressBar") as ProgressBar;
-                if (energyBar != null && _viewModel?.Bonsai != null)
-                {
-                    AnimationService.AnimateProgressChange(energyBar,
-                        energyBar.Value, _viewModel.Bonsai.Energy);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error resting bonsai: {ex.Message}",
-                    "Operation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.Rest();
+            AddJournalEntry("Your bonsai is resting.");
+            UpdateStatusMessage();
+            UpdateBonsaiImage();
         }
 
-        // Event handler for the Fertilize button click
         private void Fertilize_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                _viewModel?.Fertilize();
-
-                // Animate the health stat if we can find it
-                var healthBar = this.FindName("HealthProgressBar") as ProgressBar;
-                if (healthBar != null && _viewModel?.Bonsai != null)
-                {
-                    AnimationService.AnimateProgressChange(healthBar,
-                        healthBar.Value, _viewModel.Bonsai.Health);
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error fertilizing bonsai: {ex.Message}",
-                    "Operation Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.ApplyFertilizer();
+            AddJournalEntry("You applied fertilizer to your bonsai.");
+            UpdateStatusMessage();
+            UpdateBonsaiImage();
         }
 
-        // Event handler for the Settings button click
-        private void Settings_Click(object sender, RoutedEventArgs e)
+        private void CleanArea_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                // Create and show settings window
-                var settingsWindow = new SettingsWindow
-                {
-                    Owner = this
-                };
-
-                // Show the window and check if user saved changes
-                if (settingsWindow.ShowDialog() == true)
-                {
-                    // Apply settings changes
-                    _viewModel?.UpdateSettings();
-                }
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error opening settings: {ex.Message}",
-                    "Settings Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.CleanArea();
+            AddJournalEntry("You cleaned your bonsai's area.");
+            UpdateStatusMessage();
         }
 
-        // Event handler for the Save Game button click
-        private void SaveGame_Click(object sender, RoutedEventArgs e)
+        private void Exercise_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                // Animate the button click - safely cast sender
-                AnimationService.AnimateButtonClick(sender as Button);
+            if (!IsInteractionEnabled) return;
 
-                _viewModel?.SaveBonsai();
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error saving game: {ex.Message}",
-                    "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            Bonsai.LightExercise();
+            AddJournalEntry("Your bonsai did some light exercise.");
+            UpdateStatusMessage();
         }
 
-        #region IDisposable Implementation
-        public void Dispose()
+        private void Training_Click(object sender, RoutedEventArgs e)
         {
-            Dispose(true);
-            GC.SuppressFinalize(this);
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.IntenseTraining();
+            AddJournalEntry("Your bonsai completed an intense training session.");
+            UpdateStatusMessage();
         }
 
-        protected virtual void Dispose(bool disposing)
+        private void Play_Click(object sender, RoutedEventArgs e)
         {
-            if (!_disposed)
-            {
-                if (disposing)
-                {
-                    // Dispose managed resources
-                    CleanupResources();
-                }
+            if (!IsInteractionEnabled) return;
 
-                // Free unmanaged resources
-
-                _disposed = true;
-            }
+            Bonsai.Play();
+            AddJournalEntry("You played with your bonsai.");
+            UpdateStatusMessage();
         }
 
-        ~MainWindow()
+        private void Meditate_Click(object sender, RoutedEventArgs e)
         {
-            Dispose(false);
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.Meditate();
+            AddJournalEntry("You meditated with your bonsai.");
+            UpdateStatusMessage();
         }
         #endregion
+
+        #region Feeding Button Handlers
+        private void FeedBasicFertilizer_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedBasicFertilizer();
+            AddJournalEntry("You fed your bonsai basic fertilizer.");
+            UpdateStatusMessage();
+        }
+
+        private void FeedBurger_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedBurger();
+            AddJournalEntry("You fed your bonsai a burger. It enjoyed it but doesn't seem healthier.");
+            UpdateStatusMessage();
+        }
+
+        private void FeedIceCream_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedIceCream();
+            AddJournalEntry("You fed your bonsai ice cream. It's very happy but might get sick!");
+            UpdateStatusMessage();
+        }
+
+        private void FeedVegetables_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedVegetables();
+            AddJournalEntry("You fed your bonsai vegetables. It didn't like them but will be healthier.");
+            UpdateStatusMessage();
+        }
+
+        private void FeedPremiumNutrients_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedPremiumNutrients();
+            AddJournalEntry("You fed your bonsai premium nutrients. It's getting stronger!");
+            UpdateStatusMessage();
+        }
+
+        private void FeedSpecialTreat_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsInteractionEnabled) return;
+
+            Bonsai.FeedSpecialTreat();
+            AddJournalEntry("You gave your bonsai a special treat. It's extremely happy!");
+            UpdateStatusMessage();
+        }
+        #endregion
+
+        private void SaveGame_Click(object sender, RoutedEventArgs e)
+        {
+            SaveGame();
+            AddJournalEntry("Game saved successfully!");
+        }
+
+        private void SaveGame()
+        {
+            try
+            {
+                string json = JsonSerializer.Serialize(Bonsai);
+                File.WriteAllText(_saveFilePath, json);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error saving game: {ex.Message}", "Save Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void Settings_Click(object sender, RoutedEventArgs e)
+        {
+            var settingsWindow = new SettingsWindow
+            {
+                Owner = this
+            };
+            settingsWindow.ShowDialog();
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
     }
 }

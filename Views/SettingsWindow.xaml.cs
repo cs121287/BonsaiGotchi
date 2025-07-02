@@ -23,25 +23,27 @@ namespace BonsaiGotchiGame.Views
                 if (settings != null)
                 {
                     // Set UI controls based on settings values
-                    AutoSaveCheckBox.IsChecked = settings.AutoSave;
-                    
+                    AutoSaveCheckBox.IsChecked = settings.EnableAutoSave;
+
                     // Set the combo box selection for auto-save interval
-                    int intervalIndex = GetIntervalIndex(settings.AutoSaveIntervalMinutes);
+                    int intervalIndex = GetIntervalIndex(settings.AutoSaveInterval);
                     AutoSaveIntervalComboBox.SelectedIndex = intervalIndex;
-                    
+
                     // Set time progression speed
                     int speedIndex = GetSpeedIndex(settings.TimeProgressionSpeed);
                     TimeProgressionSpeedComboBox.SelectedIndex = speedIndex;
-                    
+
                     // Set sound and music settings
                     PlaySoundsCheckBox.IsChecked = settings.PlaySounds;
                     PlayMusicCheckBox.IsChecked = settings.PlayMusic;
                     SoundVolumeSlider.Value = settings.SoundVolume;
                     MusicVolumeSlider.Value = settings.MusicVolume;
-                    
+
                     // Set UI settings
                     ShowTipsCheckBox.IsChecked = settings.ShowTips;
-                    ThemeComboBox.SelectedIndex = settings.ThemeIndex;
+
+                    // Set theme combo box based on theme name
+                    ThemeComboBox.SelectedIndex = GetThemeIndex(settings.Theme);
                 }
             }
             catch (Exception ex)
@@ -77,6 +79,18 @@ namespace BonsaiGotchiGame.Views
             };
         }
 
+        private int GetThemeIndex(string themeName)
+        {
+            return themeName switch
+            {
+                "Forest Green" => 0,
+                "Autumn Orange" => 1,
+                "Spring Bloom" => 2,
+                "Winter Zen" => 3,
+                _ => 0  // Default to Forest Green
+            };
+        }
+
         private void SaveSettings()
         {
             try
@@ -85,23 +99,25 @@ namespace BonsaiGotchiGame.Views
                 if (settings != null)
                 {
                     // Update settings from UI controls
-                    settings.AutoSave = AutoSaveCheckBox.IsChecked ?? true;
-                    
+                    settings.EnableAutoSave = AutoSaveCheckBox.IsChecked ?? true;
+
                     // Get interval value from combo box
-                    settings.AutoSaveIntervalMinutes = GetIntervalValue(AutoSaveIntervalComboBox.SelectedIndex);
-                    
+                    settings.AutoSaveInterval = GetIntervalValue(AutoSaveIntervalComboBox.SelectedIndex);
+
                     // Get speed value from combo box
                     settings.TimeProgressionSpeed = GetSpeedValue(TimeProgressionSpeedComboBox.SelectedIndex);
-                    
+
                     // Update sound and music settings
                     settings.PlaySounds = PlaySoundsCheckBox.IsChecked ?? true;
                     settings.PlayMusic = PlayMusicCheckBox.IsChecked ?? true;
                     settings.SoundVolume = (float)SoundVolumeSlider.Value;
                     settings.MusicVolume = (float)MusicVolumeSlider.Value;
-                    
+
                     // Update UI settings
                     settings.ShowTips = ShowTipsCheckBox.IsChecked ?? true;
-                    settings.ThemeIndex = ThemeComboBox.SelectedIndex;
+
+                    // Update theme based on selected index
+                    settings.Theme = GetThemeName(ThemeComboBox.SelectedIndex);
 
                     // Save settings
                     settings.Save();
@@ -137,6 +153,18 @@ namespace BonsaiGotchiGame.Views
                 2 => 5,   // 5x Speed
                 3 => 10,  // 10x Speed
                 _ => 1    // Default to Normal
+            };
+        }
+
+        private string GetThemeName(int index)
+        {
+            return index switch
+            {
+                0 => "Forest Green",
+                1 => "Autumn Orange",
+                2 => "Spring Bloom",
+                3 => "Winter Zen",
+                _ => "Forest Green"  // Default
             };
         }
 

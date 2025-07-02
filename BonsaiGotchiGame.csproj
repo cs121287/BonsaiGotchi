@@ -49,10 +49,20 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Content Remove="Assets\Images\bonsai_default.png" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Remove="Assets\Backgrounds\afternoon.png" />
     <None Remove="Assets\Backgrounds\evening.png" />
     <None Remove="Assets\Backgrounds\morning.png" />
     <None Remove="Assets\Backgrounds\night.png" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\Images\bonsai_default.png">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </Resource>
   </ItemGroup>
 
   <PropertyGroup>

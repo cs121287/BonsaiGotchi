@@ -1,0 +1,211 @@
+<Window x:Class="BonsaiGotchiGame.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:BonsaiGotchiGame"
+        mc:Ignorable="d"
+        Title="BonsaiGotchi" Height="700" Width="500"
+        WindowStartupLocation="CenterScreen">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Top bar with status and clock -->
+        <Border Grid.Row="0" Background="#E8F5E9" Padding="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <TextBlock Grid.Column="0"
+                           Text="{Binding StatusMessage}" 
+                           FontSize="14" 
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"/>
+
+                <!-- Game Clock Display -->
+                <Border Grid.Column="1" 
+                        Background="#CCEFD1" 
+                        CornerRadius="4" 
+                        Padding="8,4" 
+                        Margin="5,0">
+                    <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding Bonsai.GameTimeDisplay}" 
+                                   FontSize="14" 
+                                   FontWeight="Bold"
+                                   HorizontalAlignment="Center"/>
+                        <TextBlock Text="{Binding Bonsai.GameDateDisplay}" 
+                                   FontSize="10"
+                                   HorizontalAlignment="Center"/>
+                    </StackPanel>
+                </Border>
+
+                <Button Grid.Column="2" 
+                        Content="⚙️" 
+                        Width="30" 
+                        Height="30"
+                        Margin="5,0,0,0"
+                        Click="Settings_Click"
+                        ToolTip="Settings"/>
+            </Grid>
+        </Border>
+
+        <!-- Stats display -->
+        <Border Grid.Row="1" Background="#E0FFFFFF" 
+                CornerRadius="5" 
+                Padding="10"
+                Margin="10"
+                HorizontalAlignment="Center">
+            <StackPanel>
+                <TextBlock Text="{Binding Bonsai.Name, StringFormat=Name: {0}}" Margin="0,2"/>
+                <TextBlock Text="{Binding Bonsai.Age, StringFormat=Age: {0} days}" Margin="0,2"/>
+
+                <Grid Margin="0,5,0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Health: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Health}" Foreground="#4CAF50" Maximum="100" Height="15" Width="150"/>
+                    <TextBlock Grid.Column="2">
+                        <Run Text="{Binding Bonsai.Health, Mode=OneWay}"/>
+                        <Run Text="%"/>
+                    </TextBlock>
+                </Grid>
+
+                <Grid Margin="0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Water: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Water}" Foreground="#2196F3" Maximum="100" Height="15" Width="150"/>
+                    <TextBlock Grid.Column="2">
+                        <Run Text="{Binding Bonsai.Water, Mode=OneWay}"/>
+                        <Run Text="%"/>
+                    </TextBlock>
+                </Grid>
+
+                <Grid Margin="0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Growth: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Growth}" Foreground="#FF9800" Maximum="100" Height="15" Width="150"/>
+                    <TextBlock Grid.Column="2">
+                        <Run Text="{Binding Bonsai.Growth, Mode=OneWay}"/>
+                        <Run Text="%"/>
+                    </TextBlock>
+                </Grid>
+
+                <Grid Margin="0,2">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Grid.Column="0" Text="Energy: " VerticalAlignment="Center"/>
+                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Energy}" Foreground="#9C27B0" Maximum="100" Height="15" Width="150"/>
+                    <TextBlock Grid.Column="2">
+                        <Run Text="{Binding Bonsai.Energy, Mode=OneWay}"/>
+                        <Run Text="%"/>
+                    </TextBlock>
+                </Grid>
+            </StackPanel>
+        </Border>
+
+        <!-- Main bonsai display area with background -->
+        <Grid Grid.Row="2" Background="#F5F5F5">
+            <!-- ViewBox to scale the 1024x1024 area to fit the window -->
+            <Viewbox Stretch="Uniform" Margin="10">
+                <!-- Main container with fixed aspect ratio -->
+                <Grid Width="512" Height="512">
+                    <!-- Fallback background color -->
+                    <Rectangle Fill="#D4F0C4" Width="512" Height="512"/>
+
+                    <!-- Background layer that changes with time of day -->
+                    <Image x:Name="BackgroundImage"
+                           Source="{Binding CurrentBackgroundImage}"
+                           Stretch="Fill"
+                           Width="512" 
+                           Height="512"/>
+
+                    <!-- Bonsai sprite layer with updated size from 64x64 to 128x128 -->
+                    <Canvas Width="512" Height="512">
+                        <Image x:Name="BonsaiImage" 
+                               Width="256" 
+                               Height="256"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               Canvas.Left="128" 
+                               Canvas.Top="225">
+                            <Image.Effect>
+                                <DropShadowEffect ShadowDepth="2" Opacity="0.3" BlurRadius="5"/>
+                            </Image.Effect>
+                        </Image>
+                    </Canvas>
+                </Grid>
+            </Viewbox>
+        </Grid>
+
+        <!-- Interaction buttons -->
+        <Border Grid.Row="3" Background="#E8F5E9" Padding="10">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="*"/>
+                </Grid.ColumnDefinitions>
+
+                <Button Grid.Column="0" 
+                        Content="Water" 
+                        Margin="3" 
+                        Padding="5" 
+                        IsEnabled="{Binding IsInteractionEnabled}"
+                        Click="Water_Click"/>
+
+                <Button Grid.Column="1" 
+                        Content="Prune" 
+                        Margin="3" 
+                        Padding="5" 
+                        IsEnabled="{Binding IsInteractionEnabled}"
+                        Click="Prune_Click"/>
+
+                <Button Grid.Column="2" 
+                        Content="Rest" 
+                        Margin="3" 
+                        Padding="5" 
+                        IsEnabled="{Binding IsInteractionEnabled}"
+                        Click="Rest_Click"/>
+
+                <Button Grid.Column="3" 
+                        Content="Fertilize" 
+                        Margin="3" 
+                        Padding="5" 
+                        IsEnabled="{Binding IsInteractionEnabled}"
+                        Click="Fertilize_Click"/>
+            </Grid>
+        </Border>
+
+        <!-- Save button -->
+        <Border Grid.Row="4" Background="#F5F5F5" Padding="10">
+            <Button Content="Save Game" 
+                    HorizontalAlignment="Center" 
+                    Padding="20,5" 
+                    Click="SaveGame_Click"/>
+        </Border>
+    </Grid>
+</Window>

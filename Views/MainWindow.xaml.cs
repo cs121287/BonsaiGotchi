@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Windows;
 using System.Windows.Threading;
+using System.Windows.Controls;
 using BonsaiGotchiGame.ViewModels;
 using BonsaiGotchiGame.Services;
 using BonsaiGotchiGame.Models;
@@ -12,10 +13,11 @@ namespace BonsaiGotchiGame
 {
     public partial class MainWindow : Window, IDisposable
     {
-        // Changed from readonly to regular fields since they're assigned in the Loaded event
+        // Fields
         private MainViewModel? _viewModel;
         private SpriteAnimator? _spriteAnimator;
         private BackgroundSpriteAnimator? _backgroundSpriteAnimator;
+        private TextBlock? _statusTextBlock;
         private bool _disposed = false;
 
         public MainWindow()
@@ -23,6 +25,9 @@ namespace BonsaiGotchiGame
             try
             {
                 InitializeComponent();
+
+                // Find the status text block for animations
+                _statusTextBlock = FindName("StatusTextBlock") as TextBlock;
 
                 // Ensure window is visible and positioned on-screen
                 EnsureWindowIsOnScreen();
@@ -68,20 +73,31 @@ namespace BonsaiGotchiGame
             {
                 // Initialize bonsai sprite animation
                 _spriteAnimator = new SpriteAnimator(BonsaiImage);
-                
+
                 // Initialize background sprite animation
                 _backgroundSpriteAnimator = new BackgroundSpriteAnimator(BackgroundImage);
-                
-                // Update background for current time - with null check
+
+                // Animate the controls to fade in
+                AnimateInitialLoad();
+
+                // Set up journal expander animations
+                var journalExpander = FindName("JournalExpander") as Expander;
+                if (journalExpander != null)
+                {
+                    journalExpander.Expanded += ToggleJournalExpander;
+                }
+
+                // Update background for current time
                 if (_viewModel?.Bonsai != null)
                 {
                     _backgroundSpriteAnimator?.UpdateBackground(_viewModel.Bonsai.GameHour);
                 }
-                
+
                 // Subscribe to sprite state changes
                 if (_viewModel != null)
                 {
                     _viewModel.BonsaiStateChanged += ViewModel_BonsaiStateChanged;
+                    _viewModel.PropertyChanged += ViewModel_PropertyChanged;
 
                     // Initial animation based on current state
                     if (_viewModel.Bonsai != null && _spriteAnimator != null)
@@ -102,9 +118,94 @@ namespace BonsaiGotchiGame
             }
         }
 
+        private void ToggleJournalExpander(object? sender, RoutedEventArgs e)
+        {
+            var expander = sender as Expander;
+            if (expander != null)
+            {
+                if (expander.IsExpanded)
+                {
+                    // Journal is expanding
+                    var journalList = FindName("JournalEntriesList") as ItemsControl;
+                    if (journalList != null)
+                    {
+                        AnimationService.FadeInElement(journalList, TimeSpan.FromMilliseconds(500));
+                    }
+                }
+            }
+        }
+
+        private void AnimateInitialLoad()
+        {
+            try
+            {
+                // Find all the main elements to animate with proper null safety
+                UIElement?[] elements = new UIElement?[5];
+                elements[0] = FindName("HeaderBar") as UIElement;
+                elements[1] = FindName("StatsPanel") as UIElement;
+                elements[2] = FindName("BonsaiDisplayArea") as UIElement;
+                elements[3] = FindName("ActionButtonsPanel") as UIElement;
+                elements[4] = FindName("SaveButtonPanel") as UIElement;
+
+                // Stagger the animations
+                for (int i = 0; i < elements.Length; i++)
+                {
+                    if (elements[i] != null)
+                    {
+                        AnimationService.FadeInElement(
+                            elements[i],
+                            TimeSpan.FromMilliseconds(300 + (i * 100)));
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in AnimateInitialLoad: {ex.Message}");
+            }
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "StatusMessage" && _statusTextBlock != null)
+            {
+                AnimationService.AnimateStatusMessage(_statusTextBlock);
+            }
+        }
+
         private void ViewModel_BonsaiStateChanged(object? sender, BonsaiState state)
         {
             _spriteAnimator?.UpdateAnimation(state);
+
+            // Animate status message
+            if (_statusTextBlock != null)
+            {
+                AnimationService.AnimateStatusMessage(_statusTextBlock);
+            }
+
+            // Check for critical states and add visual feedback
+            if (state == BonsaiState.Wilting || state == BonsaiState.Unhealthy || state == BonsaiState.Thirsty)
+            {
+                // Find the appropriate stat to pulse based on state
+                UIElement? elementToPulse = null;
+
+                if (state == BonsaiState.Wilting)
+                {
+                    elementToPulse = this.FindName("HealthStatPanel") as UIElement;
+                }
+                else if (state == BonsaiState.Thirsty)
+                {
+                    elementToPulse = this.FindName("WaterStatPanel") as UIElement;
+                }
+                else if (state == BonsaiState.Unhealthy)
+                {
+                    elementToPulse = this.FindName("GrowthStatPanel") as UIElement;
+                }
+
+                if (elementToPulse != null)
+                {
+                    AnimationService.PulseElement(elementToPulse, TimeSpan.FromSeconds(3));
+                }
+            }
         }
 
         private void MainWindow_Closing(object? sender, CancelEventArgs e)
@@ -129,6 +230,7 @@ namespace BonsaiGotchiGame
             if (_viewModel != null)
             {
                 _viewModel.BonsaiStateChanged -= ViewModel_BonsaiStateChanged;
+                _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
             }
 
             // Stop animation timers
@@ -145,7 +247,7 @@ namespace BonsaiGotchiGame
             {
                 disposableSpriteAnimator.Dispose();
             }
-            
+
             // Clean up background sprite animator
             _backgroundSpriteAnimator?.Dispose();
         }
@@ -171,7 +273,7 @@ namespace BonsaiGotchiGame
                             "Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
                 }
-                
+
                 // Also check backgrounds directory
                 string backgroundsDirectory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Backgrounds");
                 if (!Directory.Exists(backgroundsDirectory))
@@ -227,7 +329,18 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 _viewModel?.Water();
+
+                // Animate the water stat if we can find it
+                var waterBar = this.FindName("WaterProgressBar") as ProgressBar;
+                if (waterBar != null && _viewModel?.Bonsai != null)
+                {
+                    AnimationService.AnimateProgressChange(waterBar,
+                        waterBar.Value, _viewModel.Bonsai.Water);
+                }
             }
             catch (Exception ex)
             {
@@ -241,7 +354,18 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 _viewModel?.Prune();
+
+                // Animate the growth stat if we can find it
+                var growthBar = this.FindName("GrowthProgressBar") as ProgressBar;
+                if (growthBar != null && _viewModel?.Bonsai != null)
+                {
+                    AnimationService.AnimateProgressChange(growthBar,
+                        growthBar.Value, _viewModel.Bonsai.Growth);
+                }
             }
             catch (Exception ex)
             {
@@ -255,7 +379,18 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 _viewModel?.Rest();
+
+                // Animate the energy stat if we can find it
+                var energyBar = this.FindName("EnergyProgressBar") as ProgressBar;
+                if (energyBar != null && _viewModel?.Bonsai != null)
+                {
+                    AnimationService.AnimateProgressChange(energyBar,
+                        energyBar.Value, _viewModel.Bonsai.Energy);
+                }
             }
             catch (Exception ex)
             {
@@ -269,7 +404,18 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 _viewModel?.Fertilize();
+
+                // Animate the health stat if we can find it
+                var healthBar = this.FindName("HealthProgressBar") as ProgressBar;
+                if (healthBar != null && _viewModel?.Bonsai != null)
+                {
+                    AnimationService.AnimateProgressChange(healthBar,
+                        healthBar.Value, _viewModel.Bonsai.Health);
+                }
             }
             catch (Exception ex)
             {
@@ -283,6 +429,9 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 // Create and show settings window
                 var settingsWindow = new SettingsWindow
                 {
@@ -308,6 +457,9 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                // Animate the button click - safely cast sender
+                AnimationService.AnimateButtonClick(sender as Button);
+
                 _viewModel?.SaveBonsai();
             }
             catch (Exception ex)

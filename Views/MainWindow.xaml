@@ -6,7 +6,8 @@
         xmlns:local="clr-namespace:BonsaiGotchiGame"
         mc:Ignorable="d"
         Title="BonsaiGotchi" Height="700" Width="500"
-        WindowStartupLocation="CenterScreen">
+        WindowStartupLocation="CenterScreen"
+        Background="{StaticResource WindowBackgroundBrush}">
 
     <Grid>
         <Grid.RowDefinitions>
@@ -15,10 +16,14 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
         <!-- Top bar with status and clock -->
-        <Border Grid.Row="0" Background="#E8F5E9" Padding="10">
+        <Border Grid.Row="0" 
+                x:Name="HeaderBar"
+                Background="{StaticResource HeaderBackgroundBrush}" 
+                Padding="12">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -27,23 +32,29 @@
                 </Grid.ColumnDefinitions>
 
                 <TextBlock Grid.Column="0"
+                           x:Name="StatusTextBlock"
                            Text="{Binding StatusMessage}" 
+                           Foreground="{StaticResource PaperBrush}"
                            FontSize="14" 
+                           FontWeight="SemiBold"
                            TextWrapping="Wrap"
                            VerticalAlignment="Center"/>
 
                 <!-- Game Clock Display -->
                 <Border Grid.Column="1" 
-                        Background="#CCEFD1" 
-                        CornerRadius="4" 
-                        Padding="8,4" 
-                        Margin="5,0">
+                        Background="{StaticResource DarkForestGreenBrush}" 
+                        CornerRadius="6" 
+                        Padding="10,6" 
+                        Margin="8,0">
                     <StackPanel Orientation="Vertical" HorizontalAlignment="Center">
                         <TextBlock Text="{Binding Bonsai.GameTimeDisplay}" 
+                                   Foreground="{StaticResource PaperBrush}"
                                    FontSize="14" 
                                    FontWeight="Bold"
                                    HorizontalAlignment="Center"/>
                         <TextBlock Text="{Binding Bonsai.GameDateDisplay}" 
+                                   Foreground="{StaticResource PaperBrush}"
+                                   Opacity="0.8"
                                    FontSize="10"
                                    HorizontalAlignment="Center"/>
                     </StackPanel>
@@ -51,117 +62,236 @@
 
                 <Button Grid.Column="2" 
                         Content="⚙️" 
-                        Width="30" 
-                        Height="30"
+                        Width="34" 
+                        Height="34"
                         Margin="5,0,0,0"
                         Click="Settings_Click"
+                        Style="{StaticResource NatureSecondaryButtonStyle}"
                         ToolTip="Settings"/>
             </Grid>
         </Border>
 
         <!-- Stats display -->
-        <Border Grid.Row="1" Background="#E0FFFFFF" 
-                CornerRadius="5" 
-                Padding="10"
-                Margin="10"
-                HorizontalAlignment="Center">
-            <StackPanel>
-                <TextBlock Text="{Binding Bonsai.Name, StringFormat=Name: {0}}" Margin="0,2"/>
-                <TextBlock Text="{Binding Bonsai.Age, StringFormat=Age: {0} days}" Margin="0,2"/>
+        <Border Grid.Row="1" 
+                x:Name="StatsPanel"
+                Style="{StaticResource NatureCardStyle}"
+                Margin="12,12,12,6">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
 
-                <Grid Margin="0,5,0,2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Health: " VerticalAlignment="Center"/>
-                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Health}" Foreground="#4CAF50" Maximum="100" Height="15" Width="150"/>
-                    <TextBlock Grid.Column="2">
-                        <Run Text="{Binding Bonsai.Health, Mode=OneWay}"/>
-                        <Run Text="%"/>
-                    </TextBlock>
-                </Grid>
+                <!-- Bonsai Name and Age -->
+                <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock Text="{Binding Bonsai.Name}" 
+                             Style="{StaticResource HeaderTextStyle}"
+                             FontSize="18"/>
+                    <TextBlock Text="{Binding Bonsai.Age, StringFormat=Age: {0} days}"
+                             Foreground="{StaticResource SecondaryTextBrush}"
+                             FontSize="14" 
+                             Margin="0,4,0,0"/>
+                </StackPanel>
 
-                <Grid Margin="0,2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Water: " VerticalAlignment="Center"/>
-                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Water}" Foreground="#2196F3" Maximum="100" Height="15" Width="150"/>
-                    <TextBlock Grid.Column="2">
-                        <Run Text="{Binding Bonsai.Water, Mode=OneWay}"/>
-                        <Run Text="%"/>
-                    </TextBlock>
-                </Grid>
+                <!-- Stats Grid -->
+                <UniformGrid Grid.Row="1" Columns="2" Rows="2">
+                    <!-- Health Stat -->
+                    <Border x:Name="HealthStatPanel"
+                            Margin="4" 
+                            BorderBrush="{StaticResource LightMossGreenBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
 
-                <Grid Margin="0,2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Growth: " VerticalAlignment="Center"/>
-                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Growth}" Foreground="#FF9800" Maximum="100" Height="15" Width="150"/>
-                    <TextBlock Grid.Column="2">
-                        <Run Text="{Binding Bonsai.Growth, Mode=OneWay}"/>
-                        <Run Text="%"/>
-                    </TextBlock>
-                </Grid>
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="🌿" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Health" Style="{StaticResource StatLabelStyle}"/>
+                            </Grid>
 
-                <Grid Margin="0,2">
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="Auto"/>
-                    </Grid.ColumnDefinitions>
-                    <TextBlock Grid.Column="0" Text="Energy: " VerticalAlignment="Center"/>
-                    <ProgressBar Grid.Column="1" Value="{Binding Bonsai.Energy}" Foreground="#9C27B0" Maximum="100" Height="15" Width="150"/>
-                    <TextBlock Grid.Column="2">
-                        <Run Text="{Binding Bonsai.Energy, Mode=OneWay}"/>
-                        <Run Text="%"/>
-                    </TextBlock>
-                </Grid>
-            </StackPanel>
+                            <TextBlock Grid.Row="1" 
+                                       Text="{Binding Bonsai.Health, StringFormat={}{0}%}" 
+                                       Style="{StaticResource StatValueStyle}"
+                                       Margin="0,4"/>
+
+                            <ProgressBar x:Name="HealthProgressBar"
+                                         Grid.Row="2" 
+                                         Value="{Binding Bonsai.Health}" 
+                                         Foreground="{StaticResource HealthBarBrush}" 
+                                         Maximum="100" 
+                                         Style="{StaticResource NatureProgressBarStyle}"
+                                         Margin="0,4,0,0"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Water Stat -->
+                    <Border x:Name="WaterStatPanel"
+                            Margin="4" 
+                            BorderBrush="{StaticResource LightMossGreenBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="💧" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Water" Style="{StaticResource StatLabelStyle}"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" 
+                                       Text="{Binding Bonsai.Water, StringFormat={}{0}%}" 
+                                       Style="{StaticResource StatValueStyle}"
+                                       Margin="0,4"/>
+
+                            <ProgressBar x:Name="WaterProgressBar"
+                                         Grid.Row="2" 
+                                         Value="{Binding Bonsai.Water}" 
+                                         Foreground="{StaticResource WaterBarBrush}" 
+                                         Maximum="100" 
+                                         Style="{StaticResource NatureProgressBarStyle}"
+                                         Margin="0,4,0,0"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Growth Stat -->
+                    <Border x:Name="GrowthStatPanel"
+                            Margin="4" 
+                            BorderBrush="{StaticResource LightMossGreenBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="🌱" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Growth" Style="{StaticResource StatLabelStyle}"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" 
+                                       Text="{Binding Bonsai.Growth, StringFormat={}{0}%}" 
+                                       Style="{StaticResource StatValueStyle}"
+                                       Margin="0,4"/>
+
+                            <ProgressBar x:Name="GrowthProgressBar"
+                                         Grid.Row="2" 
+                                         Value="{Binding Bonsai.Growth}" 
+                                         Foreground="{StaticResource GrowthBarBrush}" 
+                                         Maximum="100" 
+                                         Style="{StaticResource NatureProgressBarStyle}"
+                                         Margin="0,4,0,0"/>
+                        </Grid>
+                    </Border>
+
+                    <!-- Energy Stat -->
+                    <Border x:Name="EnergyStatPanel"
+                            Margin="4" 
+                            BorderBrush="{StaticResource LightMossGreenBrush}" 
+                            BorderThickness="1" 
+                            CornerRadius="6" 
+                            Padding="8">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+
+                            <Grid Grid.Row="0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" Text="✨" FontSize="18" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="Energy" Style="{StaticResource StatLabelStyle}"/>
+                            </Grid>
+
+                            <TextBlock Grid.Row="1" 
+                                       Text="{Binding Bonsai.Energy, StringFormat={}{0}%}" 
+                                       Style="{StaticResource StatValueStyle}"
+                                       Margin="0,4"/>
+
+                            <ProgressBar x:Name="EnergyProgressBar"
+                                         Grid.Row="2" 
+                                         Value="{Binding Bonsai.Energy}" 
+                                         Foreground="{StaticResource EnergyBarBrush}" 
+                                         Maximum="100" 
+                                         Style="{StaticResource NatureProgressBarStyle}"
+                                         Margin="0,4,0,0"/>
+                        </Grid>
+                    </Border>
+                </UniformGrid>
+            </Grid>
         </Border>
 
         <!-- Main bonsai display area with background -->
-        <Grid Grid.Row="2" Background="#F5F5F5">
+        <Border Grid.Row="2" 
+                x:Name="BonsaiDisplayArea"
+                Style="{StaticResource NatureCardStyle}"
+                Margin="12,6">
             <!-- ViewBox to scale the 1024x1024 area to fit the window -->
-            <Viewbox Stretch="Uniform" Margin="10">
+            <Viewbox Stretch="Uniform" Margin="4">
                 <!-- Main container with fixed aspect ratio -->
-                <Grid Width="512" Height="512">
+                <Grid Width="1024" Height="1024">
                     <!-- Fallback background color -->
-                    <Rectangle Fill="#D4F0C4" Width="512" Height="512"/>
+                    <Rectangle Fill="{StaticResource LightMossGreenBrush}" Width="1024" Height="1024"/>
 
                     <!-- Background layer that changes with time of day -->
                     <Image x:Name="BackgroundImage"
                            Source="{Binding CurrentBackgroundImage}"
                            Stretch="Fill"
-                           Width="512" 
-                           Height="512"/>
+                           Width="1024" 
+                           Height="1024"/>
 
-                    <!-- Bonsai sprite layer with updated size from 64x64 to 128x128 -->
-                    <Canvas Width="512" Height="512">
+                    <!-- Bonsai sprite layer -->
+                    <Canvas Width="1024" Height="1024">
                         <Image x:Name="BonsaiImage" 
-                               Width="256" 
-                               Height="256"
+                               Width="128" 
+                               Height="128"
                                RenderOptions.BitmapScalingMode="HighQuality"
-                               Canvas.Left="128" 
-                               Canvas.Top="225">
+                               Canvas.Left="448" 
+                               Canvas.Top="448">
                             <Image.Effect>
-                                <DropShadowEffect ShadowDepth="2" Opacity="0.3" BlurRadius="5"/>
+                                <DropShadowEffect ShadowDepth="3" Opacity="0.4" BlurRadius="6"/>
                             </Image.Effect>
                         </Image>
                     </Canvas>
                 </Grid>
             </Viewbox>
-        </Grid>
+        </Border>
 
         <!-- Interaction buttons -->
-        <Border Grid.Row="3" Background="#E8F5E9" Padding="10">
+        <Border Grid.Row="3" 
+                x:Name="ActionButtonsPanel"
+                Background="{StaticResource LightMossGreenBrush}" 
+                Padding="12"
+                Margin="12,6,12,6">
             <Grid>
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*"/>
@@ -171,41 +301,102 @@
                 </Grid.ColumnDefinitions>
 
                 <Button Grid.Column="0" 
-                        Content="Water" 
-                        Margin="3" 
-                        Padding="5" 
+                        x:Name="WaterButton"
+                        Style="{StaticResource NatureButtonStyle}"
+                        Margin="4" 
                         IsEnabled="{Binding IsInteractionEnabled}"
-                        Click="Water_Click"/>
+                        Click="Water_Click"
+                        ToolTip="Give your bonsai water to keep it hydrated">
+                    <StackPanel>
+                        <TextBlock Text="💧" FontSize="16" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Water" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Button>
 
                 <Button Grid.Column="1" 
-                        Content="Prune" 
-                        Margin="3" 
-                        Padding="5" 
+                        x:Name="PruneButton"
+                        Style="{StaticResource NatureButtonStyle}"
+                        Margin="4" 
                         IsEnabled="{Binding IsInteractionEnabled}"
-                        Click="Prune_Click"/>
+                        Click="Prune_Click"
+                        ToolTip="Prune your bonsai to encourage healthy growth">
+                    <StackPanel>
+                        <TextBlock Text="✂️" FontSize="16" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Prune" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Button>
 
                 <Button Grid.Column="2" 
-                        Content="Rest" 
-                        Margin="3" 
-                        Padding="5" 
+                        x:Name="RestButton"
+                        Style="{StaticResource NatureButtonStyle}"
+                        Margin="4" 
                         IsEnabled="{Binding IsInteractionEnabled}"
-                        Click="Rest_Click"/>
+                        Click="Rest_Click"
+                        ToolTip="Let your bonsai rest to recover energy">
+                    <StackPanel>
+                        <TextBlock Text="🌙" FontSize="16" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Rest" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Button>
 
                 <Button Grid.Column="3" 
-                        Content="Fertilize" 
-                        Margin="3" 
-                        Padding="5" 
+                        x:Name="FertilizeButton"
+                        Style="{StaticResource NatureButtonStyle}"
+                        Margin="4" 
                         IsEnabled="{Binding IsInteractionEnabled}"
-                        Click="Fertilize_Click"/>
+                        Click="Fertilize_Click"
+                        ToolTip="Apply fertilizer to boost growth">
+                    <StackPanel>
+                        <TextBlock Text="🌱" FontSize="16" HorizontalAlignment="Center"/>
+                        <TextBlock Text="Fertilize" Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Button>
             </Grid>
         </Border>
 
         <!-- Save button -->
-        <Border Grid.Row="4" Background="#F5F5F5" Padding="10">
-            <Button Content="Save Game" 
+        <Border Grid.Row="4" 
+                x:Name="SaveButtonPanel"
+                Background="{StaticResource PaperBrush}" 
+                Padding="12"
+                Margin="12,6,12,6">
+            <Button x:Name="SaveButton"
+                    Content="Save Game" 
+                    Style="{StaticResource NatureSecondaryButtonStyle}"
                     HorizontalAlignment="Center" 
-                    Padding="20,5" 
+                    Padding="20,8" 
                     Click="SaveGame_Click"/>
         </Border>
+
+        <!-- Bonsai Journal (New Feature) -->
+        <Expander Header="Bonsai Journal" 
+                  ExpandDirection="Down"
+                  IsExpanded="False"
+                  Grid.Row="5"
+                  x:Name="JournalExpander"
+                  Margin="12,0,12,12"
+                  Background="{StaticResource LightMossGreenBrush}"
+                  Foreground="{StaticResource PrimaryTextBrush}"
+                  BorderBrush="{StaticResource ForestGreenBrush}"
+                  BorderThickness="1">
+            <Border Background="{StaticResource PaperBrush}" MaxHeight="150">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="JournalEntriesList" Margin="8">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" Margin="0,2" TextWrapping="Wrap"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                        <ItemsControl.Items>
+                            <TextBlock Text="[Day 1] Your bonsai was born!" Foreground="{StaticResource ForestGreenBrush}"/>
+                            <TextBlock Text="[Day 1] You watered your bonsai for the first time." Foreground="{StaticResource WaterBlueBrush}"/>
+                            <TextBlock Text="[Day 2] Your bonsai is growing nicely!" Foreground="{StaticResource LeafGreenBrush}"/>
+                            <TextBlock Text="[Day 3] You applied fertilizer to boost growth." Foreground="{StaticResource SunlightBrush}"/>
+                            <TextBlock Text="[Day 4] Your bonsai entered its first bloom cycle!" Foreground="{StaticResource BlossomPinkBrush}"/>
+                        </ItemsControl.Items>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Border>
+        </Expander>
     </Grid>
 </Window>

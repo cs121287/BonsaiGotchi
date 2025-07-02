@@ -53,8 +53,8 @@ namespace BonsaiGotchiGame.Services
             _targetImage = targetImage ?? throw new ArgumentNullException(nameof(targetImage));
             
             // Set specific size for the bonsai sprite (64x64) for new layout
-            _targetImage.Width = 256;
-            _targetImage.Height = 256;
+            _targetImage.Width = 512;
+            _targetImage.Height = 512;
             
             // Set rendering options for better quality when scaling small sprites
             RenderOptions.SetBitmapScalingMode(_targetImage, BitmapScalingMode.HighQuality);

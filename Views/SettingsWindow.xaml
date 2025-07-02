@@ -6,9 +6,9 @@
         xmlns:local="clr-namespace:BonsaiGotchiGame.Views"
         mc:Ignorable="d"
         Title="BonsaiGotchi Settings" 
-        Height="350" Width="450"
+        Height="450" Width="450"
         WindowStartupLocation="CenterOwner"
-        Background="{StaticResource WindowBackgroundBrush}"
+        Background="White"
         ResizeMode="NoResize">
 
     <Grid Margin="15">
@@ -24,117 +24,196 @@
                    FontSize="20" 
                    FontWeight="Bold" 
                    Margin="0,0,0,15"
-                   Foreground="{StaticResource ForestGreenBrush}"/>
+                   Foreground="#4CAF50"/>
 
         <!-- Settings Panel -->
         <Border Grid.Row="1"
-                Style="{StaticResource NatureCardStyle}">
-            <StackPanel>
-                <!-- Auto-save settings -->
-                <GroupBox Header="Auto-Save Settings" Margin="0,0,0,10">
-                    <StackPanel Margin="10">
-                        <CheckBox x:Name="AutoSaveCheckBox" 
-                                  Content="Enable auto-save" 
-                                  Margin="0,0,0,8"/>
+                Background="White"
+                BorderBrush="#E0E0E0"
+                BorderThickness="1"
+                Padding="12">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Margin="5">
+                    <!-- Auto-save settings -->
+                    <GroupBox Header="Auto-Save Settings" Margin="0,0,0,10">
+                        <StackPanel Margin="10">
+                            <CheckBox x:Name="AutoSaveCheckBox" 
+                                      Content="Enable auto-save" 
+                                      Margin="0,0,0,8"/>
 
-                        <Grid Margin="20,0,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                            <Grid Margin="20,0,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
 
-                            <TextBlock Grid.Column="0" 
-                                       Text="Auto-save interval: " 
-                                       VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" 
-                                    x:Name="AutoSaveIntervalSlider" 
-                                    Minimum="1" Maximum="30" 
-                                    SmallChange="1" LargeChange="5" 
-                                    TickFrequency="5" TickPlacement="BottomRight"
-                                    IsSnapToTickEnabled="True"
-                                    Margin="10,0"/>
-                            <TextBlock Grid.Column="2" 
-                                       Text="{Binding ElementName=AutoSaveIntervalSlider, Path=Value, StringFormat={}{0:0} minutes}" 
-                                       VerticalAlignment="Center" 
-                                       MinWidth="70"/>
-                        </Grid>
-                    </StackPanel>
-                </GroupBox>
+                                <TextBlock Grid.Column="0" 
+                                           Text="Auto-save interval: " 
+                                           VerticalAlignment="Center"/>
+                                <!-- Using ComboBox instead of Slider as per the code -->
+                                <ComboBox Grid.Column="1" 
+                                         x:Name="AutoSaveIntervalComboBox" 
+                                         Margin="10,0"
+                                         SelectedIndex="1">
+                                    <ComboBoxItem Content="1 minute"/>
+                                    <ComboBoxItem Content="5 minutes"/>
+                                    <ComboBoxItem Content="10 minutes"/>
+                                    <ComboBoxItem Content="15 minutes"/>
+                                    <ComboBoxItem Content="30 minutes"/>
+                                    <ComboBoxItem Content="60 minutes"/>
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
 
-                <!-- Sound settings -->
-                <GroupBox Header="Sound Settings" Margin="0,0,0,10">
-                    <StackPanel Margin="10">
-                        <CheckBox x:Name="SoundEffectsCheckBox" 
-                                  Content="Enable sound effects" 
-                                  Margin="0,0,0,8"/>
+                    <!-- Game Speed Settings -->
+                    <GroupBox Header="Game Speed Settings" Margin="0,0,0,10">
+                        <StackPanel Margin="10">
+                            <Grid Margin="0,0,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
 
-                        <Grid Margin="20,0,0,8">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" 
+                                           Text="Time progression speed: " 
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" 
+                                         x:Name="TimeProgressionSpeedComboBox" 
+                                         Margin="10,0"
+                                         SelectedIndex="0">
+                                    <ComboBoxItem Content="Normal (1x)"/>
+                                    <ComboBoxItem Content="Fast (2x)"/>
+                                    <ComboBoxItem Content="Very Fast (5x)"/>
+                                    <ComboBoxItem Content="Super Fast (10x)"/>
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
 
-                            <TextBlock Grid.Column="0" 
-                                       Text="Sound volume: " 
-                                       VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" 
-                                    x:Name="SoundVolumeSlider" 
-                                    Minimum="0" Maximum="1" 
-                                    SmallChange="0.1" LargeChange="0.2" 
-                                    TickFrequency="0.1" TickPlacement="BottomRight"
-                                    Margin="10,0"/>
-                            <TextBlock Grid.Column="2" 
-                                       Text="{Binding ElementName=SoundVolumeSlider, Path=Value, StringFormat={}{0:P0}}" 
-                                       VerticalAlignment="Center" 
-                                       MinWidth="40"/>
-                        </Grid>
+                    <!-- Sound settings -->
+                    <GroupBox Header="Sound Settings" Margin="0,0,0,10">
+                        <StackPanel Margin="10">
+                            <CheckBox x:Name="PlaySoundsCheckBox" 
+                                      Content="Enable sound effects" 
+                                      Margin="0,0,0,8"/>
 
-                        <CheckBox x:Name="BackgroundMusicCheckBox" 
-                                  Content="Enable background music" 
-                                  Margin="0,0,0,8"/>
+                            <Grid Margin="20,0,0,8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
 
-                        <Grid Margin="20,0,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="Auto"/>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
+                                <TextBlock Grid.Column="0" 
+                                           Text="Sound volume: " 
+                                           VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" 
+                                        x:Name="SoundVolumeSlider" 
+                                        Minimum="0" Maximum="1" 
+                                        SmallChange="0.1" LargeChange="0.2" 
+                                        TickFrequency="0.1" TickPlacement="BottomRight"
+                                        Value="0.8"
+                                        Margin="10,0"/>
+                                <TextBlock Grid.Column="2" 
+                                           Text="{Binding ElementName=SoundVolumeSlider, Path=Value, StringFormat={}{0:P0}}" 
+                                           VerticalAlignment="Center" 
+                                           MinWidth="40"/>
+                            </Grid>
 
-                            <TextBlock Grid.Column="0" 
-                                       Text="Music volume: " 
-                                       VerticalAlignment="Center"/>
-                            <Slider Grid.Column="1" 
-                                    x:Name="MusicVolumeSlider" 
-                                    Minimum="0" Maximum="1" 
-                                    SmallChange="0.1" LargeChange="0.2" 
-                                    TickFrequency="0.1" TickPlacement="BottomRight"
-                                    Margin="10,0"/>
-                            <TextBlock Grid.Column="2" 
-                                       Text="{Binding ElementName=MusicVolumeSlider, Path=Value, StringFormat={}{0:P0}}" 
-                                       VerticalAlignment="Center" 
-                                       MinWidth="40"/>
-                        </Grid>
-                    </StackPanel>
-                </GroupBox>
-            </StackPanel>
+                            <CheckBox x:Name="PlayMusicCheckBox" 
+                                      Content="Enable background music" 
+                                      Margin="0,0,0,8"/>
+
+                            <Grid Margin="20,0,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" 
+                                           Text="Music volume: " 
+                                           VerticalAlignment="Center"/>
+                                <Slider Grid.Column="1" 
+                                        x:Name="MusicVolumeSlider" 
+                                        Minimum="0" Maximum="1" 
+                                        SmallChange="0.1" LargeChange="0.2" 
+                                        TickFrequency="0.1" TickPlacement="BottomRight"
+                                        Value="0.5"
+                                        Margin="10,0"/>
+                                <TextBlock Grid.Column="2" 
+                                           Text="{Binding ElementName=MusicVolumeSlider, Path=Value, StringFormat={}{0:P0}}" 
+                                           VerticalAlignment="Center" 
+                                           MinWidth="40"/>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+
+                    <!-- UI Settings -->
+                    <GroupBox Header="UI Settings" Margin="0,0,0,10">
+                        <StackPanel Margin="10">
+                            <CheckBox x:Name="ShowTipsCheckBox" 
+                                      Content="Show gameplay tips" 
+                                      Margin="0,0,0,8"/>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <TextBlock Grid.Column="0" 
+                                           Text="Theme: " 
+                                           VerticalAlignment="Center"/>
+                                <ComboBox Grid.Column="1" 
+                                         x:Name="ThemeComboBox" 
+                                         Margin="10,0"
+                                         SelectedIndex="0">
+                                    <ComboBoxItem Content="Forest Green"/>
+                                    <ComboBoxItem Content="Autumn Orange"/>
+                                    <ComboBoxItem Content="Spring Bloom"/>
+                                    <ComboBoxItem Content="Winter Zen"/>
+                                </ComboBox>
+                            </Grid>
+                        </StackPanel>
+                    </GroupBox>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <!-- Buttons -->
-        <StackPanel Grid.Row="2" 
-                    Orientation="Horizontal" 
-                    HorizontalAlignment="Right" 
-                    Margin="0,15,0,0">
-            <Button Content="Cancel" 
-                    Width="80" Height="30" 
+        <Grid Grid.Row="2" Margin="0,15,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0"
+                    Content="Restore Defaults" 
+                    Width="120" Height="30" 
                     Margin="0,0,10,0" 
-                    Click="CancelButton_Click"
-                    Style="{StaticResource NatureSecondaryButtonStyle}"/>
-            <Button Content="Save" 
-                    Width="80" Height="30" 
-                    Click="SaveButton_Click"
-                    Style="{StaticResource NatureButtonStyle}"/>
-        </StackPanel>
+                    Click="DefaultsButton_Click"
+                    Background="#795548"
+                    Foreground="White"/>
+
+            <StackPanel Grid.Column="2" 
+                    Orientation="Horizontal" 
+                    HorizontalAlignment="Right">
+                <Button Content="Cancel" 
+                        Width="80" Height="30" 
+                        Margin="0,0,10,0" 
+                        Click="CancelButton_Click"
+                        Background="#795548"
+                        Foreground="White"/>
+                <Button Content="Save" 
+                        Width="80" Height="30" 
+                        Click="SaveButton_Click"
+                        Background="#4CAF50"
+                        Foreground="White"/>
+            </StackPanel>
+        </Grid>
     </Grid>
 </Window>

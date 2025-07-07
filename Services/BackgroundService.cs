@@ -12,6 +12,7 @@ namespace BonsaiGotchiGame.Services
         private readonly Dictionary<TimeOfDay, string> _backgroundPaths;
         private readonly Dictionary<TimeOfDay, BitmapImage> _cachedBackgrounds = [];
         private bool _hasAttemptedLoading = false;
+        private static readonly object _cacheLock = new object(); // Add lock object for thread safety
 
         public enum TimeOfDay
         {
@@ -25,7 +26,7 @@ namespace BonsaiGotchiGame.Services
         {
             _backgroundPaths = new Dictionary<TimeOfDay, string>
             {
-                // Changed file extensions from jpg to png
+                // Consistently use png extension throughout
                 { TimeOfDay.Morning, "morning.png" },
                 { TimeOfDay.Afternoon, "afternoon.png" },
                 { TimeOfDay.Evening, "evening.png" },
@@ -38,30 +39,34 @@ namespace BonsaiGotchiGame.Services
 
         private void PreloadBackgrounds()
         {
-            if (_hasAttemptedLoading)
-                return;
-
-            _hasAttemptedLoading = true;
-
-            try
+            // Avoid multiple loading attempts with proper thread safety
+            lock (_cacheLock)
             {
-                // Try to load all backgrounds
-                // Fixed CA2263: Using generic overload instead of System.Type overload
-                foreach (var timeOfDay in Enum.GetValues<TimeOfDay>())
-                {
-                    PreloadBackground(timeOfDay);
-                }
+                if (_hasAttemptedLoading)
+                    return;
 
-                // If no backgrounds were loaded, create default ones
-                if (_cachedBackgrounds.Count == 0)
+                _hasAttemptedLoading = true;
+
+                try
                 {
+                    // Try to load all backgrounds
+                    // Fixed CA2263: Using generic overload instead of System.Type overload
+                    foreach (var timeOfDay in Enum.GetValues<TimeOfDay>())
+                    {
+                        PreloadBackground(timeOfDay);
+                    }
+
+                    // If no backgrounds were loaded, create default ones
+                    if (_cachedBackgrounds.Count == 0)
+                    {
+                        CreateDefaultBackgrounds();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error preloading backgrounds: {ex.Message}");
                     CreateDefaultBackgrounds();
                 }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error preloading backgrounds: {ex.Message}");
-                CreateDefaultBackgrounds();
             }
         }
 
@@ -70,10 +75,13 @@ namespace BonsaiGotchiGame.Services
             Console.WriteLine("Creating default color backgrounds");
 
             // Create color backgrounds as fallbacks
-            _cachedBackgrounds[TimeOfDay.Morning] = CreateColorBackground(Colors.LightYellow);
-            _cachedBackgrounds[TimeOfDay.Afternoon] = CreateColorBackground(Colors.LightGreen);
-            _cachedBackgrounds[TimeOfDay.Evening] = CreateColorBackground(Colors.LightSalmon);
-            _cachedBackgrounds[TimeOfDay.Night] = CreateColorBackground(Colors.MidnightBlue);
+            lock (_cacheLock)
+            {
+                _cachedBackgrounds[TimeOfDay.Morning] = CreateColorBackground(Colors.LightYellow);
+                _cachedBackgrounds[TimeOfDay.Afternoon] = CreateColorBackground(Colors.LightGreen);
+                _cachedBackgrounds[TimeOfDay.Evening] = CreateColorBackground(Colors.LightSalmon);
+                _cachedBackgrounds[TimeOfDay.Night] = CreateColorBackground(Colors.MidnightBlue);
+            }
         }
 
         private static BitmapImage CreateColorBackground(Color color)
@@ -189,7 +197,10 @@ namespace BonsaiGotchiGame.Services
                         bitmap.EndInit();
                         bitmap.Freeze();
 
-                        _cachedBackgrounds[timeOfDay] = bitmap;
+                        lock (_cacheLock)
+                        {
+                            _cachedBackgrounds[timeOfDay] = bitmap;
+                        }
                         Console.WriteLine($"Loaded background from embedded resource: {resourceName}");
                         return true;
                     }
@@ -220,7 +231,10 @@ namespace BonsaiGotchiGame.Services
                 bitmap.EndInit();
                 bitmap.Freeze();
 
-                _cachedBackgrounds[timeOfDay] = bitmap;
+                lock (_cacheLock)
+                {
+                    _cachedBackgrounds[timeOfDay] = bitmap;
+                }
 
                 // Log details about the loaded image
                 Console.WriteLine($"Successfully loaded image. Size: {bitmap.PixelWidth}x{bitmap.PixelHeight}, Format: {bitmap.Format}");
@@ -236,7 +250,7 @@ namespace BonsaiGotchiGame.Services
         {
             var timeOfDay = GetTimeOfDay(gameHour);
 
-            // Try to get the filename
+            // Try to get the filename - consistently use png extension
             string fileName = _backgroundPaths.TryGetValue(timeOfDay, out string? path) ? path : "morning.png";
 
             // Return a path that's most likely to exist
@@ -254,18 +268,21 @@ namespace BonsaiGotchiGame.Services
             var timeOfDay = GetTimeOfDay(gameHour);
 
             // Return cached image if available
-            if (_cachedBackgrounds.TryGetValue(timeOfDay, out BitmapImage? image) && image != null)
+            lock (_cacheLock)
             {
-                return image;
-            }
-
-            // Fall back to morning or first available background
-            // Fixed CA2263: Using generic overload instead of System.Type overload
-            foreach (var tod in Enum.GetValues<TimeOfDay>())
-            {
-                if (_cachedBackgrounds.TryGetValue(tod, out BitmapImage? fallback) && fallback != null)
+                if (_cachedBackgrounds.TryGetValue(timeOfDay, out BitmapImage? image) && image != null)
                 {
-                    return fallback;
+                    return image;
+                }
+
+                // Fall back to morning or first available background
+                // Fixed CA2263: Using generic overload instead of System.Type overload
+                foreach (var tod in Enum.GetValues<TimeOfDay>())
+                {
+                    if (_cachedBackgrounds.TryGetValue(tod, out BitmapImage? fallback) && fallback != null)
+                    {
+                        return fallback;
+                    }
                 }
             }
 

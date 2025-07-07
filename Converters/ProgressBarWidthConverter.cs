@@ -17,9 +17,14 @@ namespace BonsaiGotchiGame.Converters
                 return 0.0;
             }
 
-            if (max - min == 0)
+            // Enhanced divide-by-zero protection with epsilon value for floating point comparison
+            if (Math.Abs(max - min) < 0.0001)
                 return 0.0;
 
+            // Ensure value is within bounds
+            value = Math.Clamp(value, min, max);
+
+            // Calculate proportion of total width
             return (value - min) / (max - min) * actualWidth;
         }
 

@@ -12,6 +12,7 @@ namespace BonsaiGotchiGame.Services
         // Default sprite dimensions
         private const int SpriteWidth = 256;
         private const int SpriteHeight = 256;
+        private static readonly object _createLock = new object(); // Add lock for thread safety
 
         public static void EnsureSpritesExist()
         {
@@ -26,6 +27,8 @@ namespace BonsaiGotchiGame.Services
                     Path.Combine(AppContext.BaseDirectory, "Assets", "Images")
                 };
 
+                bool success = false;
+
                 // Try to create sprites in the first directory that exists or can be created
                 foreach (var directory in directories)
                 {
@@ -37,59 +40,74 @@ namespace BonsaiGotchiGame.Services
                             Console.WriteLine($"Created directory: {directory}");
                         }
 
-                        // Create all the required sprites
-                        CreateSprite(Path.Combine(directory, "idle.png"), BonsaiState.Idle);
-                        CreateSprite(Path.Combine(directory, "growing.png"), BonsaiState.Growing);
-                        CreateSprite(Path.Combine(directory, "blooming.png"), BonsaiState.Blooming);
-                        CreateSprite(Path.Combine(directory, "sleeping.png"), BonsaiState.Sleeping);
-                        CreateSprite(Path.Combine(directory, "thirsty.png"), BonsaiState.Thirsty);
-                        CreateSprite(Path.Combine(directory, "unhealthy.png"), BonsaiState.Unhealthy);
-                        CreateSprite(Path.Combine(directory, "wilting.png"), BonsaiState.Wilting);
-
-                        // Create fallback.png file if it doesn't exist
-                        CreateFallbackSprite(Path.Combine(directory, "fallback.png"));
-
-                        // Also create growth stage specific sprites
-                        foreach (GrowthStage stage in Enum.GetValues(typeof(GrowthStage)))
+                        lock (_createLock) // Ensure thread safety when creating sprites
                         {
-                            string stageName = stage.ToString().ToLower();
-                            CreateGrowthStageSprite(Path.Combine(directory, $"bonsai_{stageName}.png"), stage);
+                            // Create all the required sprites
+                            CreateSprite(Path.Combine(directory, "idle.png"), BonsaiState.Idle);
+                            CreateSprite(Path.Combine(directory, "growing.png"), BonsaiState.Growing);
+                            CreateSprite(Path.Combine(directory, "blooming.png"), BonsaiState.Blooming);
+                            CreateSprite(Path.Combine(directory, "sleeping.png"), BonsaiState.Sleeping);
+                            CreateSprite(Path.Combine(directory, "thirsty.png"), BonsaiState.Thirsty);
+                            CreateSprite(Path.Combine(directory, "unhealthy.png"), BonsaiState.Unhealthy);
+                            CreateSprite(Path.Combine(directory, "wilting.png"), BonsaiState.Wilting);
 
-                            // Create stage + state combination sprites
-                            foreach (BonsaiState state in Enum.GetValues(typeof(BonsaiState)))
+                            // Create fallback.png file if it doesn't exist
+                            CreateFallbackSprite(Path.Combine(directory, "fallback.png"));
+
+                            // Also create growth stage specific sprites
+                            foreach (GrowthStage stage in Enum.GetValues<GrowthStage>())
                             {
-                                string stateName = state.ToString().ToLower();
-                                CreateGrowthStageStateSprite(
-                                    Path.Combine(directory, $"bonsai_{stageName}_{stateName}.png"),
-                                    stage,
-                                    state);
+                                string stageName = stage.ToString().ToLower();
+                                CreateGrowthStageSprite(Path.Combine(directory, $"bonsai_{stageName}.png"), stage);
+
+                                // Create stage + state combination sprites
+                                foreach (BonsaiState state in Enum.GetValues<BonsaiState>())
+                                {
+                                    string stateName = state.ToString().ToLower();
+                                    CreateGrowthStageStateSprite(
+                                        Path.Combine(directory, $"bonsai_{stageName}_{stateName}.png"),
+                                        stage,
+                                        state);
+                                }
+                            }
+
+                            // Create lowercase "images" directory and add fallback image there too
+                            // FIX: Add null check for Path.GetDirectoryName result
+                            string? directoryName = Path.GetDirectoryName(directory);
+                            if (!string.IsNullOrEmpty(directoryName))
+                            {
+                                string lowercaseImagesDir = Path.Combine(directoryName, "images");
+
+                                if (!Directory.Exists(lowercaseImagesDir))
+                                {
+                                    Directory.CreateDirectory(lowercaseImagesDir);
+                                    Console.WriteLine($"Created lowercase directory: {lowercaseImagesDir}");
+                                }
+
+                                // Create fallback image in lowercase folder
+                                CreateFallbackSprite(Path.Combine(lowercaseImagesDir, "fallback.png"));
+
+                                Console.WriteLine($"Created sprites in: {directory} and {lowercaseImagesDir}");
+                            }
+                            else
+                            {
+                                Console.WriteLine($"Created sprites in: {directory}");
                             }
                         }
 
-                        // Create lowercase "images" directory and add fallback image there too
-                        // FIX: Add null check for Path.GetDirectoryName result
-                        string? directoryName = Path.GetDirectoryName(directory);
-                        string assetsDir = directoryName ?? directory;
-                        string lowercaseImagesDir = Path.Combine(assetsDir, "images");
-
-                        if (!Directory.Exists(lowercaseImagesDir))
-                        {
-                            Directory.CreateDirectory(lowercaseImagesDir);
-                            Console.WriteLine($"Created lowercase directory: {lowercaseImagesDir}");
-                        }
-
-                        // Create fallback image in lowercase folder
-                        CreateFallbackSprite(Path.Combine(lowercaseImagesDir, "fallback.png"));
-
-                        Console.WriteLine($"Created sprites in: {directory} and {lowercaseImagesDir}");
-
-                        // Stop after successfully creating sprites in one directory
+                        // Flag success to break out of directory loop
+                        success = true;
                         break;
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"Failed to create sprites in {directory}: {ex.Message}");
                     }
+                }
+
+                if (!success)
+                {
+                    Console.WriteLine("WARNING: Failed to create sprites in any directory");
                 }
             }
             catch (Exception ex)

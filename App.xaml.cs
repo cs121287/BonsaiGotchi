@@ -14,6 +14,7 @@ namespace BonsaiGotchiGame
     {
         private SaveLoadService? _saveLoadService;
         private static readonly object _logLock = new object();
+        private bool _isExiting = false;
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -22,16 +23,13 @@ namespace BonsaiGotchiGame
             // Set up global exception handling first
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             Current.DispatcherUnhandledException += Current_DispatcherUnhandledException;
+            TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
 
             try
             {
                 LogStartup("Application startup initiated");
 
-                // Initialize services
-                _saveLoadService = new SaveLoadService();
-                LogStartup("SaveLoadService initialized");
-
-                // Directory creation is now handled in Program.cs, but we verify it exists
+                // Ensure app data directory exists
                 string appDataPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "BonsaiGotchiGame");
@@ -49,6 +47,10 @@ namespace BonsaiGotchiGame
                         throw new InvalidOperationException($"Could not create application data directory: {appDataPath}", ex);
                     }
                 }
+
+                // Initialize services
+                _saveLoadService = new SaveLoadService();
+                LogStartup("SaveLoadService initialized");
 
                 // FIXED: Changed how the MainWindow is created and initialized
                 // Create the window first without showing it
@@ -114,6 +116,13 @@ namespace BonsaiGotchiGame
                 // Use lock to prevent concurrent access issues
                 lock (_logLock)
                 {
+                    // Create directory if it doesn't exist
+                    string? directory = Path.GetDirectoryName(logPath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
                     File.AppendAllText(logPath, logEntry);
                 }
 
@@ -130,6 +139,7 @@ namespace BonsaiGotchiGame
         {
             try
             {
+                _isExiting = true;
                 LogStartup("Application exiting");
 
                 // Perform any cleanup or final save operations
@@ -141,12 +151,36 @@ namespace BonsaiGotchiGame
                         try
                         {
                             // Use Task.Run to avoid UI thread blocking
-                            Task.Run(async () =>
+                            var saveTask = Task.Run(async () =>
                             {
-                                await _saveLoadService.SaveBonsaiAsync(viewModel.Bonsai).ConfigureAwait(false);
-                            }).Wait(TimeSpan.FromSeconds(5)); // Give it 5 seconds max to complete
+                                try
+                                {
+                                    await _saveLoadService.SaveBonsaiAsync(viewModel.Bonsai).ConfigureAwait(false);
+                                    return true;
+                                }
+                                catch (Exception ex)
+                                {
+                                    LogStartup($"Exception during final save: {ex.Message}");
+                                    return false;
+                                }
+                            });
 
-                            LogStartup("Final save completed");
+                            // Use a timeout for the save operation
+                            if (saveTask.Wait(TimeSpan.FromSeconds(5)))
+                            {
+                                if (saveTask.Result)
+                                {
+                                    LogStartup("Final save completed successfully");
+                                }
+                                else
+                                {
+                                    LogStartup("Final save reported failure");
+                                }
+                            }
+                            else
+                            {
+                                LogStartup("Final save timed out");
+                            }
                         }
                         catch (Exception saveEx)
                         {
@@ -154,18 +188,24 @@ namespace BonsaiGotchiGame
                         }
                     }
 
-                    // FIXED: Proper disposal check and handling
-                    if (mainWindow is IDisposable disposable)
+                    // Properly dispose of the MainWindow view model if it's disposable
+                    if (mainWindow.DataContext is IDisposable disposableViewModel)
                     {
-                        disposable.Dispose();
-                        LogStartup("MainWindow disposed");
+                        try
+                        {
+                            disposableViewModel.Dispose();
+                            LogStartup("ViewModel disposed");
+                        }
+                        catch (Exception ex)
+                        {
+                            LogStartup($"Error disposing ViewModel: {ex.Message}");
+                        }
                     }
                 }
 
                 // Release service references
                 _saveLoadService = null;
 
-                // REMOVED: Forced garbage collection as it's not recommended
                 LogStartup("Application exit complete");
             }
             catch (Exception ex)
@@ -175,8 +215,9 @@ namespace BonsaiGotchiGame
                 {
                     LogStartup($"Stack trace: {ex.StackTrace}");
                 }
-                MessageBox.Show($"Error saving data on exit: {ex.Message}",
-                    "Exit Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+
+                // Don't show message box during shutdown as it can prevent the app from closing
+                Debug.WriteLine($"Error saving data on exit: {ex.Message}");
             }
 
             base.OnExit(e);
@@ -184,12 +225,14 @@ namespace BonsaiGotchiGame
 
         private void CurrentDomain_UnhandledException(object sender, UnhandledExceptionEventArgs e)
         {
+            if (_isExiting) return; // Don't handle exceptions during exit
+
             LogError(e.ExceptionObject as Exception);
 
             try
             {
-                MessageBox.Show($"An unexpected error occurred: {(e.ExceptionObject as Exception)?.Message}",
-                                "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                MessageBox.Show($"An unexpected error occurred: {(e.ExceptionObject as Exception)?.Message}\n\nThe application will now close.",
+                                "Critical Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
             {
@@ -201,11 +244,17 @@ namespace BonsaiGotchiGame
 
         private void Current_DispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
         {
+            if (_isExiting)
+            {
+                e.Handled = true;
+                return; // Don't handle exceptions during exit
+            }
+
             LogError(e.Exception);
 
             try
             {
-                MessageBox.Show($"An unexpected error occurred: {e.Exception.Message}",
+                MessageBox.Show($"An unexpected error occurred: {e.Exception.Message}\n\nDetails have been logged.",
                                 "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
             catch (Exception ex)
@@ -216,6 +265,29 @@ namespace BonsaiGotchiGame
             }
 
             e.Handled = true;
+        }
+
+        private void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            if (_isExiting)
+            {
+                e.SetObserved();
+                return; // Don't handle exceptions during exit
+            }
+
+            LogError(e.Exception?.InnerException);
+
+            // Mark as observed so it doesn't crash the process
+            e.SetObserved();
+
+            try
+            {
+                Debug.WriteLine($"Unobserved task exception: {e.Exception?.InnerException?.Message ?? e.Exception?.Message ?? "Unknown"}");
+            }
+            catch
+            {
+                // Nothing more we can do
+            }
         }
 
         private void LogError(Exception? ex)
@@ -235,6 +307,13 @@ namespace BonsaiGotchiGame
                 // Use lock to prevent concurrent access issues
                 lock (_logLock)
                 {
+                    // Create directory if it doesn't exist
+                    string? directory = Path.GetDirectoryName(logPath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
                     File.AppendAllText(logPath, logEntry);
                 }
 

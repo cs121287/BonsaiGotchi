@@ -49,10 +49,11 @@ namespace BonsaiGotchiGame.Models
         Miserable
     }
 
-    public class Bonsai : INotifyPropertyChanged
+    public partial class Bonsai : INotifyPropertyChanged
     {
         private readonly object _updateLock = new object();
-        private static readonly Random _random = new Random();
+        private readonly object _xpLock = new object(); // New lock for XP operations
+        protected static readonly Random _random = new Random();
 
         private string _name = string.Empty;
         private int _water;
@@ -81,7 +82,7 @@ namespace BonsaiGotchiGame.Models
         private HealthCondition _healthCondition;
         private int _consecutiveDaysGoodCare;
         private Dictionary<string, DateTime> _actionCooldowns = new Dictionary<string, DateTime>();
-        private Dictionary<string, bool> _activeEffects = new Dictionary<string, bool>();
+        protected Dictionary<string, bool> _activeEffects = new Dictionary<string, bool>();
 
         // Cooldowns for actions (in minutes for testing purposes)
         private readonly Dictionary<string, int> _actionCooldownTimes = new Dictionary<string, int>
@@ -107,9 +108,35 @@ namespace BonsaiGotchiGame.Models
         private bool _canFertilize = true;
         private bool _canCleanArea = true;
         private bool _canExercise = true;
-        private bool _canTrain = true;  // Important! This backing field was missing
+        private bool _canTrain = true;
         private bool _canPlay = true;
         private bool _canMeditate = true;
+
+        // XP gain tracking for UI updates
+        private int _lastXpGain = 0;
+
+        // Add inventory and currency properties
+        private Inventory? _inventory;
+        private Currency _currency = new Currency();
+
+        // Constants for food item IDs
+        public const string BASIC_FERTILIZER_ID = "basic_fertilizer";
+        public const string BURGER_ID = "burger";
+        public const string ICE_CREAM_ID = "ice_cream";
+        public const string VEGETABLES_ID = "vegetables";
+        public const string PREMIUM_NUTRIENTS_ID = "premium_nutrients";
+        public const string SPECIAL_TREAT_ID = "special_treat";
+
+        public Inventory Inventory
+        {
+            get => _inventory ??= new Inventory();
+        }
+
+        public Currency Currency
+        {
+            get => _currency;
+            set { _currency = value; OnPropertyChanged(); }
+        }
 
         public string Name
         {
@@ -236,9 +263,25 @@ namespace BonsaiGotchiGame.Models
             get => _xp;
             set
             {
-                _xp = Math.Max(0, value);
-                OnPropertyChanged();
-                CheckForLevelUp();
+                lock (_xpLock)
+                {
+                    int oldValue = _xp;
+                    _xp = Math.Max(0, value);
+
+                    if (_xp != oldValue)
+                    {
+                        // Calculate the gain for UI animation
+                        _lastXpGain = _xp - oldValue;
+
+                        OnPropertyChanged();
+                        OnPropertyChanged(nameof(XPToNextLevel));
+                        OnPropertyChanged(nameof(LevelDisplay));
+                        OnPropertyChanged(nameof(XPPercentage));
+
+                        // Check if this causes a level up
+                        CheckForLevelUp();
+                    }
+                }
             }
         }
 
@@ -247,9 +290,17 @@ namespace BonsaiGotchiGame.Models
             get => _level;
             private set
             {
-                _level = Math.Max(1, value);
-                OnPropertyChanged();
-                UpdateGrowthStage();
+                if (_level != value)
+                {
+                    _level = Math.Max(1, value);
+                    OnPropertyChanged();
+
+                    // Update related properties
+                    UpdateGrowthStage();
+                    OnPropertyChanged(nameof(LevelDisplay));
+                    OnPropertyChanged(nameof(XPToNextLevel));
+                    OnPropertyChanged(nameof(XPPercentage));
+                }
             }
         }
 
@@ -258,9 +309,17 @@ namespace BonsaiGotchiGame.Models
             get => _mood;
             set
             {
+                int oldValue = _mood;
                 _mood = Math.Clamp(value, 0, 100);
-                OnPropertyChanged();
-                UpdateMoodState();
+
+                if (_mood != oldValue)
+                {
+                    OnPropertyChanged();
+                    UpdateMoodState();
+
+                    // Update XP multiplier when mood changes
+                    OnPropertyChanged(nameof(XPMultiplier));
+                }
             }
         }
 
@@ -279,25 +338,61 @@ namespace BonsaiGotchiGame.Models
         public GrowthStage GrowthStage
         {
             get => _growthStage;
-            private set { _growthStage = value; OnPropertyChanged(); }
+            private set
+            {
+                if (_growthStage != value)
+                {
+                    _growthStage = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(GrowthStageDisplay));
+                }
+            }
         }
 
         public MoodState MoodState
         {
             get => _moodState;
-            private set { _moodState = value; OnPropertyChanged(); }
+            private set
+            {
+                if (_moodState != value)
+                {
+                    _moodState = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(MoodDisplay));
+                    OnPropertyChanged(nameof(XPMultiplier));
+                }
+            }
         }
 
         public HealthCondition HealthCondition
         {
             get => _healthCondition;
-            set { _healthCondition = value; OnPropertyChanged(); }
+            set
+            {
+                if (_healthCondition != value)
+                {
+                    _healthCondition = value;
+                    OnPropertyChanged();
+                    OnPropertyChanged(nameof(HealthConditionDisplay));
+                }
+            }
         }
 
         public int ConsecutiveDaysGoodCare
         {
             get => _consecutiveDaysGoodCare;
-            set { _consecutiveDaysGoodCare = Math.Max(0, value); OnPropertyChanged(); }
+            set
+            {
+                if (_consecutiveDaysGoodCare != value)
+                {
+                    _consecutiveDaysGoodCare = Math.Max(0, value);
+                    OnPropertyChanged();
+
+                    // Update XP multiplier when streak changes
+                    OnPropertyChanged(nameof(XPMultiplier));
+                    OnPropertyChanged(nameof(StreakBonusText));
+                }
+            }
         }
 
         // Formatted time and date for display
@@ -314,9 +409,34 @@ namespace BonsaiGotchiGame.Models
 
         public string HealthConditionDisplay => HealthCondition.ToString();
 
-        public double XPMultiplier => CalculateXPMultiplier();
+        // XP multiplier now includes both mood and streak components
+        public double XPMultiplier
+        {
+            get
+            {
+                double moodMultiplier = GetMoodMultiplier();
+                double streakBonus = GetStreakBonus();
+                return moodMultiplier * (1.0 + streakBonus);
+            }
+        }
+
+        public string StreakBonusText => $"+{GetStreakBonus():P0} from {ConsecutiveDaysGoodCare} day streak";
 
         public int XPToNextLevel => Math.Max(0, GetXPForNextLevel() - XP);
+
+        // Add percentage calculation for progress bars
+        public double XPPercentage
+        {
+            get
+            {
+                int maxXP = GetXPForNextLevel();
+                if (maxXP <= 0) return 100;
+                return Math.Min(100, (double)XP / maxXP * 100);
+            }
+        }
+
+        // Track last XP gain for UI animations
+        public int LastXPGain => _lastXpGain;
 
         // Action availability properties - FIXED: Thread-safe implementation
         public bool CanWater
@@ -421,7 +541,6 @@ namespace BonsaiGotchiGame.Models
             }
         }
 
-        // FIXED: This property was causing the error - ensure it's properly implemented
         public bool CanTrain
         {
             get
@@ -551,6 +670,17 @@ namespace BonsaiGotchiGame.Models
             _activeEffects = new Dictionary<string, bool>();
             _previousCooldownActions = new HashSet<string>();
 
+            // Initialize inventory and currency
+            _inventory = new Inventory();
+            _currency = new Currency();
+
+            // Add some starter items
+            _inventory.AddItem(BURGER_ID, 3);
+            _inventory.AddItem(ICE_CREAM_ID, 2);
+            _inventory.AddItem(VEGETABLES_ID, 5);
+            _inventory.AddItem(PREMIUM_NUTRIENTS_ID, 1);
+            _inventory.AddItem(SPECIAL_TREAT_ID, 0);
+
             // Initial update
             UpdateMoodState();
             UpdateGrowthStage();
@@ -567,7 +697,7 @@ namespace BonsaiGotchiGame.Models
             Energy += 10;
             CurrentState = BonsaiState.Growing;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(5);
             Mood += 5;
             Hunger += 2; // Slightly increases hunger
@@ -585,7 +715,7 @@ namespace BonsaiGotchiGame.Models
             Health += 5;
             CurrentState = BonsaiState.Blooming;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(10);
             Mood -= 5; // Initially makes bonsai unhappy
             Hunger += 5;
@@ -604,7 +734,7 @@ namespace BonsaiGotchiGame.Models
             Energy += 40;
             CurrentState = BonsaiState.Sleeping;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(5);
             Mood += 15;
             Hunger -= 5;
@@ -621,7 +751,7 @@ namespace BonsaiGotchiGame.Models
             Growth += 10;
             CurrentState = BonsaiState.Growing;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(15);
             Mood += 2;
             Hunger -= 10;
@@ -635,7 +765,7 @@ namespace BonsaiGotchiGame.Models
         {
             if (!CanCleanArea) return;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(8);
             Mood += 8;
             Health += 3;
@@ -650,7 +780,7 @@ namespace BonsaiGotchiGame.Models
         {
             if (!CanExercise) return;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(10);
             Mood += 5;
             Health += 10;
@@ -665,7 +795,7 @@ namespace BonsaiGotchiGame.Models
         {
             if (!CanTrain) return;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(25);
             Mood -= 5; // Initially feels tiring
             Health += 20;
@@ -693,7 +823,7 @@ namespace BonsaiGotchiGame.Models
         {
             if (!CanPlay) return;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(15);
             Mood += 20;
             Health += 5;
@@ -708,7 +838,7 @@ namespace BonsaiGotchiGame.Models
         {
             if (!CanMeditate) return;
 
-            // XP system updates
+            // XP system updates with thread safety
             AddExperience(8);
             Mood += 25;
             Health += 8;
@@ -718,91 +848,122 @@ namespace BonsaiGotchiGame.Models
             SetActionCooldown("Meditation");
         }
 
-        // Feeding methods
+        // Updated feeding methods that use the inventory
         public void FeedBasicFertilizer()
         {
+            // Basic fertilizer is free and doesn't use inventory
             AddExperience(5);
             Health += 5;
             Hunger -= 20;
             Energy += 5;
         }
 
-        public void FeedBurger()
+        public bool FeedBurger()
         {
-            AddExperience(3);
-            Mood += 3;
-            Health -= 5;
-            Hunger -= 30;
-            Energy += 15;
-
-            // Small chance of illness
-            if (_random.Next(100) < 5)
+            if (Inventory.UseItem(BURGER_ID))
             {
-                HealthCondition = HealthCondition.NutrientDeficiency;
+                AddExperience(3);
+                Mood += 3;
+                Health -= 5;
+                Hunger -= 30;
+                Energy += 15;
+
+                // Small chance of illness
+                if (_random.Next(100) < 5)
+                {
+                    HealthCondition = HealthCondition.NutrientDeficiency;
+                }
+
+                return true;
             }
+            return false;
         }
 
-        public void FeedIceCream()
+        public bool FeedIceCream()
         {
-            AddExperience(4);
-            Mood += 15;
-            Health -= 10;
-            Hunger -= 15;
-            Energy += 20;
-
-            // Higher chance of illness
-            if (_random.Next(100) < 15)
+            if (Inventory.UseItem(ICE_CREAM_ID))
             {
-                HealthCondition = HealthCondition.NutrientDeficiency;
+                AddExperience(4);
+                Mood += 15;
+                Health -= 10;
+                Hunger -= 15;
+                Energy += 20;
+
+                // Higher chance of illness
+                if (_random.Next(100) < 15)
+                {
+                    HealthCondition = HealthCondition.NutrientDeficiency;
+                }
+
+                return true;
             }
+            return false;
         }
 
-        public void FeedVegetables()
+        public bool FeedVegetables()
         {
-            AddExperience(8);
-            Mood -= 10; // Initially unhappy
-            Health += 15;
-            Hunger -= 25;
-            Energy += 10;
-
-            // Set active effect for later mood boost
-            _activeEffects["VegetablesMoodBoost"] = true;
-
-            // Reduce illness chance
-            if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 10)
+            if (Inventory.UseItem(VEGETABLES_ID))
             {
-                HealthCondition = HealthCondition.Healthy;
+                AddExperience(8);
+                Mood -= 10; // Initially unhappy
+                Health += 15;
+                Hunger -= 25;
+                Energy += 10;
+
+                // Set active effect for later mood boost
+                _activeEffects["VegetablesMoodBoost"] = true;
+
+                // Reduce illness chance
+                if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 10)
+                {
+                    HealthCondition = HealthCondition.Healthy;
+                }
+
+                return true;
             }
+            return false;
         }
 
-        public void FeedPremiumNutrients()
+        public bool FeedPremiumNutrients()
         {
-            AddExperience(15);
-            Mood += 10;
-            Health += 20;
-            Hunger -= 40;
-            Energy += 15;
-
-            // Reduce illness chance
-            if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 5)
+            if (Inventory.UseItem(PREMIUM_NUTRIENTS_ID))
             {
-                HealthCondition = HealthCondition.Healthy;
+                AddExperience(15);
+                Mood += 10;
+                Health += 20;
+                Hunger -= 40;
+                Energy += 15;
+
+                // Reduce illness chance
+                if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 5)
+                {
+                    HealthCondition = HealthCondition.Healthy;
+                }
+
+                return true;
             }
+            return false;
         }
 
-        public void FeedSpecialTreat()
+        public bool FeedSpecialTreat()
         {
-            AddExperience(20);
-            Mood += 25;
-            Health -= 5;
-            Hunger -= 10;
-            Energy += 30;
-
-            // Chance of illness
-            if (_random.Next(100) < 10)
+            if (Inventory.UseItem(SPECIAL_TREAT_ID))
             {
-                HealthCondition = HealthCondition.NutrientDeficiency;
+                AddExperience(20);
+                Mood += 25;
+                Health -= 5;
+                Hunger -= 10;
+                Energy += 30;
+
+                // Chance of illness
+                if (_random.Next(100) < 10)
+                {
+                    HealthCondition = HealthCondition.NutrientDeficiency;
+                }
+
+                return true;
             }
+            return false;
         }
 
         public void UpdateState()
@@ -927,10 +1088,17 @@ namespace BonsaiGotchiGame.Models
                     // Update mood state
                     UpdateMoodState();
 
-                    // Update XP based on consistent good care
+                    // Add small passive XP gain for good care over time
                     if (Health > 70 && Water > 70 && Energy > 70 && Cleanliness > 70 && Hunger < 30)
                     {
-                        AddExperience(1); // Small XP for good maintenance
+                        // Small XP for maintaining good conditions - calculated based on elapsed time
+                        double minutesPassedSinceLastUpdate = (DateTime.Now - LastUpdateTime).TotalMinutes;
+                        if (minutesPassedSinceLastUpdate >= 1.0) // Only add passive XP after a minute
+                        {
+                            int passiveXP = (int)Math.Floor(minutesPassedSinceLastUpdate * 0.1); // 0.1 XP per minute
+                            if (passiveXP > 0)
+                                AddExperience(passiveXP);
+                        }
                     }
 
                     LastUpdateTime = DateTime.Now;
@@ -959,27 +1127,48 @@ namespace BonsaiGotchiGame.Models
             temp = CanFertilize;
             temp = CanCleanArea;
             temp = CanExercise;
-            temp = CanTrain;  // Make sure this is called!
+            temp = CanTrain;
             temp = CanPlay;
             temp = CanMeditate;
         }
 
-        // XP System helper methods
+        // Enhanced XP System helper methods with thread safety
         private void AddExperience(int baseXP)
         {
             if (baseXP <= 0) return;
 
-            // Apply mood multiplier
-            double moodMultiplier = CalculateXPMultiplier();
+            lock (_xpLock) // Thread safety for XP operations
+            {
+                try
+                {
+                    // Apply mood multiplier
+                    double moodMultiplier = GetMoodMultiplier();
 
-            // Apply streak bonus (5% per day of consecutive good care, up to 50%)
-            double streakBonus = 1.0 + Math.Min(0.5, ConsecutiveDaysGoodCare * 0.05);
+                    // Apply streak bonus (5% per day of consecutive good care, up to 50%)
+                    double streakBonus = GetStreakBonus();
 
-            // Calculate final XP gain
-            int finalXP = Math.Max(1, (int)(baseXP * moodMultiplier * streakBonus));
+                    // Calculate final XP gain with overflow protection
+                    int finalXP;
+                    checked
+                    {
+                        finalXP = Math.Max(1, (int)(baseXP * moodMultiplier * (1.0 + streakBonus)));
 
-            // Add XP
-            XP += finalXP;
+                        // Store last XP gain for UI animations
+                        _lastXpGain = finalXP;
+
+                        // Add XP
+                        XP += finalXP;
+                    }
+
+                    // XP property setter will handle notifications and level-up checks
+                }
+                catch (OverflowException)
+                {
+                    // Handle overflow more gracefully
+                    _lastXpGain = 0;
+                    XP = int.MaxValue - 100; // Just below max to allow for future small gains
+                }
+            }
         }
 
         private void CheckForLevelUp()
@@ -997,6 +1186,9 @@ namespace BonsaiGotchiGame.Models
                 // Mood boost on level up
                 Mood += 20;
 
+                // Add 5 Bonsai Bills when leveling up
+                Currency.AddBills(5);
+
                 // Any level-up rewards would be triggered here
             }
 
@@ -1006,10 +1198,13 @@ namespace BonsaiGotchiGame.Models
 
         private int GetXPForNextLevel()
         {
-            // XP formula: 100 * level^1.5 with bounds checking
             try
             {
-                return Math.Max(100, (int)(100 * Math.Pow(Level, 1.5)));
+                // XP formula: 100 * level^1.5 with bounds checking
+                checked
+                {
+                    return Math.Max(100, (int)(100 * Math.Pow(Level, 1.5)));
+                }
             }
             catch (OverflowException)
             {
@@ -1017,7 +1212,7 @@ namespace BonsaiGotchiGame.Models
             }
         }
 
-        private double CalculateXPMultiplier()
+        private double GetMoodMultiplier()
         {
             // Base multiplier from mood state
             return MoodState switch
@@ -1031,6 +1226,12 @@ namespace BonsaiGotchiGame.Models
                 MoodState.Miserable => 0.7,
                 _ => 1.0
             };
+        }
+
+        private double GetStreakBonus()
+        {
+            // Streak bonus (5% per day, up to 50%)
+            return Math.Min(0.5, ConsecutiveDaysGoodCare * 0.05);
         }
 
         private void UpdateMoodState()
@@ -1052,7 +1253,7 @@ namespace BonsaiGotchiGame.Models
 
         private void UpdateGrowthStage()
         {
-            GrowthStage = Level switch
+            GrowthStage newStage = Level switch
             {
                 <= 5 => GrowthStage.Seedling,
                 <= 15 => GrowthStage.Sapling,
@@ -1063,7 +1264,11 @@ namespace BonsaiGotchiGame.Models
                 _ => GrowthStage.LegendaryBonsai
             };
 
-            OnPropertyChanged(nameof(GrowthStageDisplay));
+            // Only update if stage changed
+            if (newStage != GrowthStage)
+            {
+                GrowthStage = newStage;
+            }
         }
 
         private void EvaluateDailyCare()
@@ -1073,12 +1278,24 @@ namespace BonsaiGotchiGame.Models
 
             if (goodCareDay)
             {
+                int previousStreak = ConsecutiveDaysGoodCare;
                 ConsecutiveDaysGoodCare++;
+
+                // Add XP for good daily care
                 AddExperience(10); // Bonus XP for good daily care
+
+                // If streak milestone reached (e.g., 5, 10, 15 days), give extra bonus
+                if (ConsecutiveDaysGoodCare % 5 == 0)
+                {
+                    AddExperience(ConsecutiveDaysGoodCare * 2); // Extra bonus for milestone
+                }
             }
             else
             {
-                ConsecutiveDaysGoodCare = 0;
+                if (ConsecutiveDaysGoodCare > 0)
+                {
+                    ConsecutiveDaysGoodCare = 0;
+                }
             }
 
             // Ensure growth progresses at least a little each day

@@ -14,9 +14,8 @@ namespace BonsaiGotchiGame
         [STAThread]
         public static void Main()
         {
-            // Enable Windows Forms integration if needed
-            //System.Windows.Forms.Application.EnableVisualStyles();
-            //System.Windows.Forms.Application.SetCompatibleTextRenderingDefault(false);
+            // Set thread name for easier debugging
+            Thread.CurrentThread.Name = "Main Thread";
 
             try
             {
@@ -98,6 +97,13 @@ namespace BonsaiGotchiGame
                 // Use lock to prevent concurrent access issues
                 lock (_logLock)
                 {
+                    // Create directory if it doesn't exist
+                    string? directory = Path.GetDirectoryName(logPath);
+                    if (!string.IsNullOrEmpty(directory) && !Directory.Exists(directory))
+                    {
+                        Directory.CreateDirectory(directory);
+                    }
+
                     File.AppendAllText(logPath, logEntry);
                 }
 

@@ -3,5 +3,65 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:BonsaiGotchiGame"
              StartupUri="Views/MainWindow.xaml">
-    <!-- No custom resources -->
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary>
+                    <!-- Style for food buttons with inventory count display -->
+                    <Style x:Key="FoodButtonStyle" TargetType="Button">
+                        <Setter Property="Margin" Value="2"/>
+                        <Setter Property="Height" Value="Auto"/>
+                        <Setter Property="Background" Value="#FFF3E0"/>
+                        <Setter Property="Foreground" Value="Black"/>
+                        <Setter Property="BorderBrush" Value="#FFB74D"/>
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="Button">
+                                    <Border Background="{TemplateBinding Background}"
+                                            BorderBrush="{TemplateBinding BorderBrush}"
+                                            BorderThickness="1"
+                                            CornerRadius="4">
+                                        <Grid>
+                                            <!-- Main content -->
+                                            <ContentPresenter HorizontalAlignment="Center" 
+                                                              VerticalAlignment="Center"/>
+
+                                            <!-- Always visible badge, relies on empty tag to be invisible -->
+                                            <Border Background="#4CAF50"
+                                                    CornerRadius="10"
+                                                    Padding="4,1"
+                                                    HorizontalAlignment="Right"
+                                                    VerticalAlignment="Bottom"
+                                                    Margin="0,0,3,3">
+                                                <TextBlock Text="{Binding Path=Tag, RelativeSource={RelativeSource TemplatedParent}}" 
+                                                           Foreground="White"
+                                                           FontSize="9"
+                                                           FontWeight="Bold"/>
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <!-- Button state triggers -->
+                                        <Trigger Property="IsMouseOver" Value="True">
+                                            <Setter Property="Background" Value="#FFE0B2"/>
+                                        </Trigger>
+                                        <Trigger Property="IsPressed" Value="True">
+                                            <Setter Property="Background" Value="#FFCC80"/>
+                                        </Trigger>
+                                        <Trigger Property="IsEnabled" Value="False">
+                                            <Setter Property="Opacity" Value="0.6"/>
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </ResourceDictionary>
+
+                <!-- Include other resource dictionaries -->
+                <ResourceDictionary Source="/Themes/DefaultTheme.xaml"/>
+                <ResourceDictionary Source="/AppStyles.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
+    </Application.Resources>
 </Application>

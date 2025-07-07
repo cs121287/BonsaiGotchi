@@ -87,14 +87,40 @@ namespace BonsaiGotchiGame.Services
                 }
 
                 // Save the file with atomic write operation
-                string tempPath = savePath + ".tmp";
+                string tempPath = Path.Combine(
+                    Path.GetDirectoryName(savePath) ?? string.Empty,
+                    Path.GetFileNameWithoutExtension(savePath) + ".tmp");
+
                 await File.WriteAllTextAsync(tempPath, json);
 
                 // Verify the file was written correctly
                 if (File.Exists(tempPath))
                 {
-                    // Atomic move operation
-                    File.Move(tempPath, savePath, true);
+                    try
+                    {
+                        // Ensure we can read the file back to verify integrity
+                        string verificationJson = await File.ReadAllTextAsync(tempPath);
+                        if (string.IsNullOrWhiteSpace(verificationJson))
+                        {
+                            throw new IOException("Verification failed: temporary save file is empty");
+                        }
+
+                        // Atomic move operation
+                        if (File.Exists(savePath))
+                        {
+                            File.Delete(savePath);
+                        }
+                        File.Move(tempPath, savePath);
+                    }
+                    catch (Exception ex)
+                    {
+                        // Clean up temp file if move failed
+                        if (File.Exists(tempPath))
+                        {
+                            try { File.Delete(tempPath); } catch { /* Ignore cleanup errors */ }
+                        }
+                        throw new IOException($"Failed to complete save operation: {ex.Message}", ex);
+                    }
                 }
                 else
                 {
@@ -119,65 +145,80 @@ namespace BonsaiGotchiGame.Services
                 string savePath = GetSaveFilePath();
                 string backupPath = GetBackupFilePath();
 
-                if (!File.Exists(savePath))
+                if (!File.Exists(savePath) && !File.Exists(backupPath))
                 {
                     return new Bonsai(); // Return a new bonsai if no save file exists
                 }
 
-                string json;
+                string json = string.Empty;
                 BonsaiSaveData? saveData = null;
+                Exception? primaryException = null;
 
                 // Try to load primary save file
-                try
+                if (File.Exists(savePath))
                 {
-                    json = await File.ReadAllTextAsync(savePath);
-
-                    // Validate JSON before deserializing
-                    if (string.IsNullOrWhiteSpace(json))
+                    try
                     {
-                        throw new InvalidDataException("Save file is empty");
+                        json = await File.ReadAllTextAsync(savePath);
+
+                        // Validate JSON before deserializing
+                        if (string.IsNullOrWhiteSpace(json))
+                        {
+                            throw new InvalidDataException("Save file is empty");
+                        }
+
+                        var options = new JsonSerializerOptions
+                        {
+                            PropertyNameCaseInsensitive = true,
+                            PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                        };
+
+                        saveData = JsonSerializer.Deserialize<BonsaiSaveData>(json, options);
                     }
-
-                    var options = new JsonSerializerOptions
+                    catch (Exception ex)
                     {
-                        PropertyNameCaseInsensitive = true,
-                        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                    };
-
-                    saveData = JsonSerializer.Deserialize<BonsaiSaveData>(json, options);
+                        System.Diagnostics.Debug.WriteLine($"Failed to load primary save file: {ex.Message}");
+                        primaryException = ex;
+                    }
                 }
-                catch (Exception ex)
+
+                // Try to load backup file if primary failed or doesn't exist
+                if (saveData == null && File.Exists(backupPath))
                 {
-                    System.Diagnostics.Debug.WriteLine($"Failed to load primary save file: {ex.Message}");
-
-                    // Try to load backup file
-                    if (File.Exists(backupPath))
+                    try
                     {
-                        try
+                        json = await File.ReadAllTextAsync(backupPath);
+                        if (!string.IsNullOrWhiteSpace(json))
                         {
-                            json = await File.ReadAllTextAsync(backupPath);
-                            if (!string.IsNullOrWhiteSpace(json))
+                            var options = new JsonSerializerOptions
                             {
-                                var options = new JsonSerializerOptions
-                                {
-                                    PropertyNameCaseInsensitive = true,
-                                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-                                };
-                                saveData = JsonSerializer.Deserialize<BonsaiSaveData>(json, options);
-                                System.Diagnostics.Debug.WriteLine("Successfully loaded from backup file");
-                            }
-                        }
-                        catch (Exception backupEx)
-                        {
-                            System.Diagnostics.Debug.WriteLine($"Failed to load backup file: {backupEx.Message}");
+                                PropertyNameCaseInsensitive = true,
+                                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+                            };
+                            saveData = JsonSerializer.Deserialize<BonsaiSaveData>(json, options);
+                            System.Diagnostics.Debug.WriteLine("Successfully loaded from backup file");
                         }
                     }
-
-                    // If both primary and backup failed, throw the original exception
-                    if (saveData == null)
+                    catch (Exception backupEx)
                     {
-                        throw new Exception($"Failed to load save file and backup: {ex.Message}", ex);
+                        System.Diagnostics.Debug.WriteLine($"Failed to load backup file: {backupEx.Message}");
+
+                        // If both primary and backup failed, throw the original exception
+                        if (primaryException != null)
+                        {
+                            throw new AggregateException("Failed to load both primary and backup save files",
+                                primaryException, backupEx);
+                        }
+                        else
+                        {
+                            throw new Exception($"Failed to load save file and backup: {backupEx.Message}", backupEx);
+                        }
                     }
+                }
+                else if (saveData == null && primaryException != null)
+                {
+                    // If primary failed and backup doesn't exist or wasn't attempted
+                    throw new Exception($"Failed to load save file: {primaryException.Message}", primaryException);
                 }
 
                 if (saveData == null)
@@ -242,6 +283,7 @@ namespace BonsaiGotchiGame.Services
             }
             catch (Exception ex)
             {
+                System.Diagnostics.Debug.WriteLine($"Error loading bonsai: {ex}");
                 throw new Exception($"Failed to load bonsai: {ex.Message}", ex);
             }
             finally
@@ -255,7 +297,8 @@ namespace BonsaiGotchiGame.Services
             try
             {
                 string savePath = GetSaveFilePath();
-                return await Task.Run(() => File.Exists(savePath));
+                string backupPath = GetBackupFilePath();
+                return await Task.Run(() => File.Exists(savePath) || File.Exists(backupPath));
             }
             catch
             {
@@ -352,7 +395,25 @@ namespace BonsaiGotchiGame.Services
                     return false;
 
                 // Check if LastUpdateTime is reasonable (not too far in the future)
+                // Allow up to 1 day in the future to account for timezone differences
                 if (saveData.LastUpdateTime > DateTime.Now.AddDays(1))
+                    return false;
+
+                // Check if SaveTimestamp is reasonable
+                if (saveData.SaveTimestamp > DateTime.UtcNow.AddDays(1))
+                    return false;
+
+                // Validate that enums are defined
+                if (!Enum.IsDefined(typeof(BonsaiState), saveData.CurrentState))
+                    return false;
+
+                if (!Enum.IsDefined(typeof(GrowthStage), saveData.GrowthStage))
+                    return false;
+
+                if (!Enum.IsDefined(typeof(MoodState), saveData.MoodState))
+                    return false;
+
+                if (!Enum.IsDefined(typeof(HealthCondition), saveData.HealthCondition))
                     return false;
 
                 return true;

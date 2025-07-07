@@ -9,6 +9,8 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using BonsaiGotchiGame.Models;
 using BonsaiGotchiGame.Services;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace BonsaiGotchiGame.ViewModels
 {
@@ -28,6 +30,8 @@ namespace BonsaiGotchiGame.ViewModels
         private BackgroundSpriteAnimator? _backgroundSpriteAnimator;
         private bool _safeMode;
         private bool _disposed = false;
+        private readonly object _updateLock = new object(); // Add lock for thread safety
+        private readonly SemaphoreSlim _saveLock = new SemaphoreSlim(1, 1); // Add lock for save operations
 
         // Add event for bonsai state changes with nullable declaration
         public event EventHandler<BonsaiState>? BonsaiStateChanged;
@@ -166,12 +170,22 @@ namespace BonsaiGotchiGame.ViewModels
         {
             try
             {
+                if (backgroundImageControl == null)
+                    throw new ArgumentNullException(nameof(backgroundImageControl));
+
+                // Dispose of existing animator if it exists
+                if (_backgroundSpriteAnimator != null)
+                {
+                    _backgroundSpriteAnimator.Dispose();
+                }
+
                 _backgroundSpriteAnimator = new BackgroundSpriteAnimator(backgroundImageControl);
                 UpdateBackground();
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"Error initializing background animator: {ex.Message}");
+                StatusMessage = "Error initializing background";
             }
         }
 
@@ -183,15 +197,31 @@ namespace BonsaiGotchiGame.ViewModels
                 {
                     try
                     {
-                        Bonsai = await _saveLoadService!.LoadBonsaiAsync();
-                        StatusMessage = "Bonsai loaded successfully!";
-                        UpdateBackground(); // Update background after loading bonsai
+                        var loadedBonsai = await _saveLoadService!.LoadBonsaiAsync();
+
+                        // Update UI on the UI thread
+                        Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            if (_disposed) return;
+
+                            Bonsai = loadedBonsai;
+                            StatusMessage = "Bonsai loaded successfully!";
+                            UpdateBackground(); // Update background after loading bonsai
+                        });
                     }
-                    catch
+                    catch (Exception ex)
                     {
-                        Bonsai = new Bonsai();
-                        StatusMessage = "Created a new bonsai!";
-                        UpdateBackground(); // Update background after creating new bonsai
+                        // Update UI on the UI thread
+                        Application.Current?.Dispatcher.Invoke(() =>
+                        {
+                            if (_disposed) return;
+
+                            Bonsai = new Bonsai();
+                            StatusMessage = "Created a new bonsai!";
+                            UpdateBackground(); // Update background after creating new bonsai
+
+                            Console.WriteLine($"Failed to load bonsai: {ex.Message}");
+                        });
                     }
                 });
             }
@@ -289,28 +319,37 @@ namespace BonsaiGotchiGame.ViewModels
 
         private void Bonsai_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            // Check if the CurrentState property changed
-            if (e.PropertyName == nameof(Bonsai.CurrentState) && _bonsai != null)
-            {
-                // Notify subscribers about the state change
-                BonsaiStateChanged?.Invoke(this, _bonsai.CurrentState);
-                UpdateStatusMessage();
-            }
+            if (_disposed) return;
 
-            // Update UI when game time changes
-            if ((e.PropertyName == nameof(Bonsai.GameHour) ||
-                e.PropertyName == nameof(Bonsai.GameMinute) ||
-                e.PropertyName == nameof(Bonsai.GameTimeDisplay) ||
-                e.PropertyName == nameof(Bonsai.GameDateDisplay)) && _bonsai != null)
+            try
             {
-                // Force update of time display properties
-                OnPropertyChanged(nameof(Bonsai));
-            }
+                // Check if the CurrentState property changed
+                if (e.PropertyName == nameof(Bonsai.CurrentState) && _bonsai != null)
+                {
+                    // Notify subscribers about the state change
+                    BonsaiStateChanged?.Invoke(this, _bonsai.CurrentState);
+                    UpdateStatusMessage();
+                }
 
-            // Update background when game hour changes
-            if (e.PropertyName == nameof(Bonsai.GameHour) && _bonsai != null)
+                // Update UI when game time changes
+                if ((e.PropertyName == nameof(Bonsai.GameHour) ||
+                    e.PropertyName == nameof(Bonsai.GameMinute) ||
+                    e.PropertyName == nameof(Bonsai.GameTimeDisplay) ||
+                    e.PropertyName == nameof(Bonsai.GameDateDisplay)) && _bonsai != null)
+                {
+                    // Force update of time display properties
+                    OnPropertyChanged(nameof(Bonsai));
+                }
+
+                // Update background when game hour changes
+                if (e.PropertyName == nameof(Bonsai.GameHour) && _bonsai != null)
+                {
+                    UpdateBackground();
+                }
+            }
+            catch (Exception ex)
             {
-                UpdateBackground();
+                Console.WriteLine($"Error in Bonsai_PropertyChanged: {ex.Message}");
             }
         }
 
@@ -320,9 +359,12 @@ namespace BonsaiGotchiGame.ViewModels
 
             try
             {
-                Bonsai?.UpdateState();
-                UpdateStatusMessage();
-                CheckCriticalConditions();
+                lock (_updateLock)
+                {
+                    Bonsai?.UpdateState();
+                    UpdateStatusMessage();
+                    CheckCriticalConditions();
+                }
             }
             catch (Exception ex)
             {
@@ -349,7 +391,7 @@ namespace BonsaiGotchiGame.ViewModels
 
         private void UpdateStatusMessage()
         {
-            if (Bonsai == null)
+            if (_disposed || Bonsai == null)
             {
                 StatusMessage = "Bonsai not initialized";
                 return;
@@ -370,21 +412,21 @@ namespace BonsaiGotchiGame.ViewModels
 
         private void CheckCriticalConditions()
         {
-            if (_disposed || Bonsai == null) return;
+            if (_disposed || Bonsai == null || _soundService == null) return;
 
             try
             {
                 if (Bonsai.Health < 20)
                 {
-                    _soundService?.PlaySoundEffect("wilt");
+                    _soundService.PlaySoundEffect("wilt");
                 }
                 else if (Bonsai.Water < 10)
                 {
-                    _soundService?.PlaySoundEffect("wilt");
+                    _soundService.PlaySoundEffect("wilt");
                 }
                 else if (Bonsai.Growth > 90)
                 {
-                    _soundService?.PlaySoundEffect("bloom");
+                    _soundService.PlaySoundEffect("bloom");
                 }
             }
             catch (Exception ex)
@@ -399,8 +441,11 @@ namespace BonsaiGotchiGame.ViewModels
             if (_disposed || Bonsai == null || !IsInteractionEnabled)
                 return;
 
-            Bonsai.GiveWater();
-            _soundService?.PlaySoundEffect("water");
+            lock (_updateLock)
+            {
+                Bonsai.GiveWater();
+                _soundService?.PlaySoundEffect("water");
+            }
 
             // Temporary disable interaction to prevent spam
             TemporarilyDisableInteraction();
@@ -411,8 +456,11 @@ namespace BonsaiGotchiGame.ViewModels
             if (_disposed || Bonsai == null || !IsInteractionEnabled)
                 return;
 
-            Bonsai.Prune();
-            _soundService?.PlaySoundEffect("prune");
+            lock (_updateLock)
+            {
+                Bonsai.Prune();
+                _soundService?.PlaySoundEffect("prune");
+            }
 
             // Temporary disable interaction to prevent spam
             TemporarilyDisableInteraction();
@@ -423,8 +471,11 @@ namespace BonsaiGotchiGame.ViewModels
             if (_disposed || Bonsai == null || !IsInteractionEnabled)
                 return;
 
-            Bonsai.Rest();
-            _soundService?.PlaySoundEffect("rest");
+            lock (_updateLock)
+            {
+                Bonsai.Rest();
+                _soundService?.PlaySoundEffect("rest");
+            }
 
             // Temporary disable interaction for longer
             TemporarilyDisableInteraction(5);
@@ -435,8 +486,81 @@ namespace BonsaiGotchiGame.ViewModels
             if (_disposed || Bonsai == null || !IsInteractionEnabled)
                 return;
 
-            Bonsai.ApplyFertilizer();
-            _soundService?.PlaySoundEffect("fertilize");
+            lock (_updateLock)
+            {
+                Bonsai.ApplyFertilizer();
+                _soundService?.PlaySoundEffect("fertilize");
+            }
+
+            // Temporary disable interaction to prevent spam
+            TemporarilyDisableInteraction();
+        }
+
+        public void CleanArea()
+        {
+            if (_disposed || Bonsai == null || !IsInteractionEnabled)
+                return;
+
+            lock (_updateLock)
+            {
+                Bonsai.CleanArea();
+            }
+
+            // Temporary disable interaction to prevent spam
+            TemporarilyDisableInteraction();
+        }
+
+        public void Exercise()
+        {
+            if (_disposed || Bonsai == null || !IsInteractionEnabled)
+                return;
+
+            lock (_updateLock)
+            {
+                Bonsai.LightExercise();
+            }
+
+            // Temporary disable interaction to prevent spam
+            TemporarilyDisableInteraction();
+        }
+
+        public void Train()
+        {
+            if (_disposed || Bonsai == null || !IsInteractionEnabled)
+                return;
+
+            lock (_updateLock)
+            {
+                Bonsai.IntenseTraining();
+            }
+
+            // Temporary disable interaction to prevent spam
+            TemporarilyDisableInteraction();
+        }
+
+        public void Play()
+        {
+            if (_disposed || Bonsai == null || !IsInteractionEnabled)
+                return;
+
+            lock (_updateLock)
+            {
+                Bonsai.Play();
+            }
+
+            // Temporary disable interaction to prevent spam
+            TemporarilyDisableInteraction();
+        }
+
+        public void Meditate()
+        {
+            if (_disposed || Bonsai == null || !IsInteractionEnabled)
+                return;
+
+            lock (_updateLock)
+            {
+                Bonsai.Meditate();
+            }
 
             // Temporary disable interaction to prevent spam
             TemporarilyDisableInteraction();
@@ -448,25 +572,49 @@ namespace BonsaiGotchiGame.ViewModels
 
             IsInteractionEnabled = false;
 
-            Task.Delay(TimeSpan.FromSeconds(seconds))
-                .ContinueWith(_ =>
+            Task.Run(async () =>
+            {
+                try
                 {
+                    await Task.Delay(TimeSpan.FromSeconds(seconds));
+
+                    if (_disposed) return;
+
+                    // Fix for CS8602: Check for null before accessing Dispatcher
+                    var dispatcher = Application.Current?.Dispatcher;
+                    if (dispatcher != null)
+                    {
+                        await dispatcher.InvokeAsync(() =>
+                        {
+                            if (_disposed) return;
+                            IsInteractionEnabled = true;
+                        });
+                    }
+                    else
+                    {
+                        // Fallback if no dispatcher is available
+                        IsInteractionEnabled = true;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error re-enabling interaction: {ex.Message}");
+
+                    // Last resort - try to re-enable interaction
                     try
                     {
-                        if (_disposed) return;
-
                         Application.Current?.Dispatcher.Invoke(() =>
                         {
                             if (!_disposed)
                                 IsInteractionEnabled = true;
                         });
                     }
-                    catch (Exception ex)
+                    catch
                     {
-                        Console.WriteLine($"Error re-enabling interaction: {ex.Message}");
-                        IsInteractionEnabled = true; // Try to ensure it gets re-enabled
+                        // Nothing more we can do
                     }
-                });
+                }
+            });
         }
 
         public void SaveBonsai()
@@ -478,48 +626,63 @@ namespace BonsaiGotchiGame.ViewModels
             {
                 try
                 {
-                    await _saveLoadService.SaveBonsaiAsync(Bonsai);
-                    StatusMessage = "Game saved!";
+                    // Use SemaphoreSlim to prevent multiple concurrent save operations
+                    await _saveLock.WaitAsync();
 
-                    // Automatically clear the message after a short delay
-                    await Task.Delay(2000);
-
-                    // Only update if the status message hasn't been changed by something else
                     try
                     {
-                        if (_disposed) return;
+                        await _saveLoadService.SaveBonsaiAsync(Bonsai);
 
-                        Application.Current?.Dispatcher.Invoke(() =>
+                        // Fix for CS8602: Check for null before accessing Dispatcher
+                        var dispatcher = Application.Current?.Dispatcher;
+                        if (dispatcher != null)
                         {
-                            if (_disposed) return;
-
-                            if (StatusMessage == "Game saved!")
+                            await dispatcher.InvokeAsync(() =>
                             {
-                                UpdateStatusMessage();
-                            }
-                        });
+                                if (_disposed) return;
+
+                                StatusMessage = "Game saved!";
+                            });
+
+                            // Automatically clear the message after a short delay
+                            await Task.Delay(2000);
+
+                            // Only update if the status message hasn't been changed by something else
+                            await dispatcher.InvokeAsync(() =>
+                            {
+                                if (_disposed) return;
+
+                                if (StatusMessage == "Game saved!")
+                                {
+                                    UpdateStatusMessage();
+                                }
+                            });
+                        }
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        Console.WriteLine($"Error updating status message: {ex.Message}");
+                        _saveLock.Release();
                     }
                 }
                 catch (Exception ex)
                 {
                     try
                     {
-                        if (_disposed) return;
-
-                        Application.Current?.Dispatcher.Invoke(() =>
+                        // Fix for CS8602: Check for null before accessing Dispatcher
+                        var dispatcher = Application.Current?.Dispatcher;
+                        if (dispatcher != null)
                         {
-                            if (!_disposed)
-                                StatusMessage = "Failed to save game!";
-                        });
+                            await dispatcher.InvokeAsync(() =>
+                            {
+                                if (!_disposed)
+                                    StatusMessage = "Failed to save game!";
+                            });
+                        }
                     }
                     catch
                     {
                         // Last resort
-                        StatusMessage = "Failed to save game!";
+                        Console.WriteLine($"Failed to update UI after save error: {ex.Message}");
                     }
                     Console.WriteLine($"Error saving bonsai: {ex.Message}");
                 }
@@ -620,6 +783,9 @@ namespace BonsaiGotchiGame.ViewModels
                     _saveLoadService = null;
                     _backgroundService = null;
                     _bonsai = null;
+
+                    // Release SemaphoreSlim
+                    _saveLock.Dispose();
                 }
 
                 _disposed = true;

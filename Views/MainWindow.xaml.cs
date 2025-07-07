@@ -62,44 +62,56 @@ namespace BonsaiGotchiGame
 
         public MainWindow()
         {
-            // Set DataContext before InitializeComponent to avoid binding errors
+            // Set the DataContext first
             DataContext = this;
 
+            // Initialize components
             InitializeComponent();
 
             // Initialize game timer
             _gameTimer.Tick += OnGameTimerTick;
             _gameTimer.Interval = TimeSpan.FromSeconds(1);
 
-            // Load game or create new
-            LoadGameOrCreateNew();
+            try
+            {
+                // Load game or create new
+                LoadGameOrCreateNew();
 
-            // Initialize UI elements after data is loaded
-            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
-                // Initialize background image
+                // Initialize UI
                 UpdateBackgroundImage();
-
-                // Initialize bonsai image
                 UpdateBonsaiImage();
-
-                // Set mood emoji
                 UpdateMoodEmoji();
 
-                // Start the game timer only after UI is fully initialized
+                // Start the game timer
                 _gameTimer.Start();
-            }));
 
-            // Store initial values for tracking changes
-            _previousLevel = Bonsai.Level;
-            _previousMoodState = Bonsai.MoodState;
-            _previousGrowthStage = Bonsai.GrowthStage;
-            _previousHealthCondition = Bonsai.HealthCondition;
+                // Store initial values for tracking changes
+                _previousLevel = Bonsai.Level;
+                _previousMoodState = Bonsai.MoodState;
+                _previousGrowthStage = Bonsai.GrowthStage;
+                _previousHealthCondition = Bonsai.HealthCondition;
 
-            // Add initial journal entry
-            AddJournalEntry($"Welcome to BonsaiGotchi! Your {Bonsai.GrowthStage} is ready to grow.");
+                // Add initial journal entry
+                AddJournalEntry($"Welcome to BonsaiGotchi! Your {Bonsai.GrowthStage} is ready to grow.");
 
-            // Subscribe to property changes
-            Bonsai.PropertyChanged += Bonsai_PropertyChanged;
+                // Listen for property changes from Bonsai
+                Bonsai.PropertyChanged += (s, e) => {
+                    // If a CanX property changed, update UI
+                    if (e.PropertyName?.StartsWith("Can") == true)
+                    {
+                        // Force UI update on the UI thread
+                        Dispatcher.Invoke(() => {
+                            // Explicitly notify that Bonsai has changed
+                            OnPropertyChanged(nameof(Bonsai));
+                        });
+                    }
+                };
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error initializing game: {ex.Message}", "Initialization Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
         }
 
         private void Bonsai_PropertyChanged(object? sender, PropertyChangedEventArgs e)

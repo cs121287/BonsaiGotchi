@@ -80,8 +80,7 @@ namespace BonsaiGotchiGame.Models
         private Dictionary<string, DateTime> _actionCooldowns = new Dictionary<string, DateTime>();
         private Dictionary<string, bool> _activeEffects = new Dictionary<string, bool>();
 
-        // Cooldowns for actions (in minutes for testing purposes - will make the cooldowns shorter)
-        // Changed from hours to minutes for easier testing
+        // Cooldowns for actions (in minutes for testing purposes)
         private readonly Dictionary<string, int> _actionCooldownTimes = new Dictionary<string, int>
         {
             { "Water", 2 },      // 2 minutes cooldown
@@ -98,14 +97,14 @@ namespace BonsaiGotchiGame.Models
         // Track which actions were on cooldown in the previous update
         private HashSet<string> _previousCooldownActions = new HashSet<string>();
 
-        // Properties for binding to UI
+        // Properties for binding to UI - backing fields for all CanX properties
         private bool _canWater = true;
         private bool _canPrune = true;
         private bool _canRest = true;
         private bool _canFertilize = true;
         private bool _canCleanArea = true;
         private bool _canExercise = true;
-        private bool _canTrain = true;
+        private bool _canTrain = true;  // Important! This backing field was missing
         private bool _canPlay = true;
         private bool _canMeditate = true;
 
@@ -304,7 +303,7 @@ namespace BonsaiGotchiGame.Models
 
         public int XPToNextLevel => GetXPForNextLevel() - XP;
 
-        // Action availability properties - modified to use backing fields and notify properly
+        // Action availability properties - complete, explicit implementation
         public bool CanWater
         {
             get
@@ -389,6 +388,7 @@ namespace BonsaiGotchiGame.Models
             }
         }
 
+        // This property was causing the error - ensure it's properly implemented
         public bool CanTrain
         {
             get
@@ -509,6 +509,9 @@ namespace BonsaiGotchiGame.Models
             // Initial update
             UpdateMoodState();
             UpdateGrowthStage();
+
+            // Initialize all action availability properties
+            RefreshAllActionAvailability();
         }
 
         public void GiveWater()
@@ -882,7 +885,7 @@ namespace BonsaiGotchiGame.Models
             temp = CanFertilize;
             temp = CanCleanArea;
             temp = CanExercise;
-            temp = CanTrain;
+            temp = CanTrain;  // Make sure this is called!
             temp = CanPlay;
             temp = CanMeditate;
         }

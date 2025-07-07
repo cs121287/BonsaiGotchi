@@ -7,17 +7,18 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 using System.Windows.Threading;
 using Path = System.IO.Path;
+using System.Collections.Generic;
 
 namespace BonsaiGotchiGame
 {
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        private readonly string _saveFilePath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BonsaiGotchiGame", "save.json");
+        private readonly string _saveFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BonsaiGotchiGame", "save.json");
         private readonly DispatcherTimer _gameTimer = new DispatcherTimer();
         private readonly ObservableCollection<string> _journalEntries = new ObservableCollection<string>();
         private string _statusMessage = "Your bonsai is doing well.";
@@ -28,6 +29,10 @@ namespace BonsaiGotchiGame
         private MoodState _previousMoodState = MoodState.Content;
         private GrowthStage _previousGrowthStage = GrowthStage.Seedling;
         private HealthCondition _previousHealthCondition = HealthCondition.Healthy;
+
+        // Dictionary to track cooldown timers without modifying button content
+        private Dictionary<string, DispatcherTimer> _cooldownTimers = new Dictionary<string, DispatcherTimer>();
+        private Dictionary<string, TextBlock> _cooldownLabels = new Dictionary<string, TextBlock>();
 
         public Bonsai Bonsai
         {
@@ -53,30 +58,36 @@ namespace BonsaiGotchiGame
             set { _isInteractionEnabled = value; OnPropertyChanged(); }
         }
 
+        public ObservableCollection<string> JournalEntries => _journalEntries;
+
         public MainWindow()
         {
-            InitializeComponent();
+            // Set DataContext before InitializeComponent to avoid binding errors
             DataContext = this;
+
+            InitializeComponent();
 
             // Initialize game timer
             _gameTimer.Tick += OnGameTimerTick;
             _gameTimer.Interval = TimeSpan.FromSeconds(1);
-            _gameTimer.Start();
 
             // Load game or create new
             LoadGameOrCreateNew();
 
-            // Initialize background image
-            UpdateBackgroundImage();
+            // Initialize UI elements after data is loaded
+            Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() => {
+                // Initialize background image
+                UpdateBackgroundImage();
 
-            // Initialize bonsai image
-            UpdateBonsaiImage();
+                // Initialize bonsai image
+                UpdateBonsaiImage();
 
-            // Set mood emoji
-            UpdateMoodEmoji();
+                // Set mood emoji
+                UpdateMoodEmoji();
 
-            // Set journal entries
-            JournalEntriesList.ItemsSource = _journalEntries;
+                // Start the game timer only after UI is fully initialized
+                _gameTimer.Start();
+            }));
 
             // Store initial values for tracking changes
             _previousLevel = Bonsai.Level;
@@ -86,6 +97,84 @@ namespace BonsaiGotchiGame
 
             // Add initial journal entry
             AddJournalEntry($"Welcome to BonsaiGotchi! Your {Bonsai.GrowthStage} is ready to grow.");
+
+            // Subscribe to property changes
+            Bonsai.PropertyChanged += Bonsai_PropertyChanged;
+        }
+
+        private void Bonsai_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            // When cooldown-related properties change, update UI accordingly
+            if (e.PropertyName?.StartsWith("Can") == true)
+            {
+                string action = e.PropertyName.Substring(3); // Remove "Can" prefix
+
+                // Update action button enabled state in UI thread
+                Dispatcher.Invoke(() => {
+                    UpdateButtonState(action);
+                });
+            }
+        }
+
+        private void UpdateButtonState(string actionName)
+        {
+            // Map action name to button
+            Button? button = GetButtonForAction(actionName);
+            if (button == null) return;
+
+            // Get current cooldown state
+            bool isEnabled = GetCanActionValue(actionName);
+
+            // Update button state - only the enabled property, don't modify content
+            button.IsEnabled = isEnabled;
+
+            // If action was previously on cooldown and is now enabled
+            if (isEnabled && _cooldownTimers.ContainsKey(actionName))
+            {
+                // Stop the cooldown timer
+                _cooldownTimers[actionName].Stop();
+                _cooldownTimers.Remove(actionName);
+
+                // Remove cooldown label if it exists
+                if (_cooldownLabels.ContainsKey(actionName))
+                {
+                    _cooldownLabels.Remove(actionName);
+                }
+            }
+        }
+
+        private Button? GetButtonForAction(string actionName)
+        {
+            return actionName switch
+            {
+                "Water" => WaterButton,
+                "Prune" => PruneButton,
+                "Rest" => RestButton,
+                "Fertilize" => FertilizeButton,
+                "CleanArea" => CleanAreaButton,
+                "Exercise" => ExerciseButton,
+                "Train" => TrainingButton,
+                "Play" => PlayButton,
+                "Meditate" => MeditateButton,
+                _ => null
+            };
+        }
+
+        private bool GetCanActionValue(string actionName)
+        {
+            return actionName switch
+            {
+                "Water" => Bonsai.CanWater,
+                "Prune" => Bonsai.CanPrune,
+                "Rest" => Bonsai.CanRest,
+                "Fertilize" => Bonsai.CanFertilize,
+                "CleanArea" => Bonsai.CanCleanArea,
+                "Exercise" => Bonsai.CanExercise,
+                "Train" => Bonsai.CanTrain,
+                "Play" => Bonsai.CanPlay,
+                "Meditate" => Bonsai.CanMeditate,
+                _ => true
+            };
         }
 
         private void OnGameTimerTick(object? sender, EventArgs e)
@@ -166,130 +255,36 @@ namespace BonsaiGotchiGame
         {
             try
             {
-                if (Bonsai == null) return;
+                // Try to load the fallback image directly
+                string fallbackPath = "pack://application:,,,/Assets/Images/fallback.png";
 
-                string state = Bonsai.CurrentState.ToString().ToLower();
-                string stage = Bonsai.GrowthStage.ToString().ToLower();
-
-                // Create a list of paths to try in order
-                List<string> imagePaths = new List<string>
-        {
-            $"pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/bonsai_{stage}_{state}.png",
-            $"pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/bonsai_{stage}.png",
-            "pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/fallback.png",
-            "pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/idle.png",
-            "pack://application:,,,/Assets/Images/fallback.png",
-            "pack://application:,,,/Assets/Images/idle.png"
-        };
-
-                bool imageLoaded = false;
-                foreach (string path in imagePaths)
-                {
-                    try
-                    {
-                        // Load image with explicit options to ensure proper loading
-                        BitmapImage bmp = new BitmapImage();
-                        bmp.BeginInit();
-                        bmp.UriSource = new Uri(path);
-                        bmp.CacheOption = BitmapCacheOption.OnLoad;
-                        bmp.EndInit();
-                        bmp.Freeze(); // Make it thread-safe
-
-                        BonsaiImage.Source = bmp;
-                        imageLoaded = true;
-                        break; // Successfully loaded an image
-                    }
-                    catch
-                    {
-                        // Continue to next path
-                        continue;
-                    }
-                }
-
-                // If no image could be loaded, create a fallback image
-                if (!imageLoaded)
-                {
-                    // Create a simple colored rectangle as absolute fallback
-                    Rectangle rect = new Rectangle
-                    {
-                        Fill = new SolidColorBrush(Colors.ForestGreen),
-                        Width = 256,
-                        Height = 256
-                    };
-
-                    // Draw a simple bonsai
-                    DrawingVisual drawingVisual = new DrawingVisual();
-                    using (DrawingContext dc = drawingVisual.RenderOpen())
-                    {
-                        // Draw pot
-                        dc.DrawRectangle(
-                            new SolidColorBrush(Colors.SaddleBrown),
-                            new Pen(Brushes.Brown, 2),
-                            new Rect(128 - 40, 200, 80, 40));
-
-                        // Draw trunk
-                        dc.DrawRectangle(
-                            new SolidColorBrush(Colors.Brown),
-                            null,
-                            new Rect(128 - 10, 120, 20, 80));
-
-                        // Draw foliage
-                        dc.DrawEllipse(
-                            new SolidColorBrush(Colors.ForestGreen),
-                            new Pen(Brushes.DarkGreen, 2),
-                            new Point(128, 80),
-                            60, 50);
-                    }
-
-                    // Render to bitmap
-                    RenderTargetBitmap rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
-                    rtb.Render(drawingVisual);
-                    rtb.Freeze(); // Make it thread-safe
-
-                    BonsaiImage.Source = rtb;
-                }
-            }
-            catch (Exception ex)
-            {
-                // Last resort - at least don't crash
-                System.Diagnostics.Debug.WriteLine($"Failed to load any bonsai image: {ex.Message}");
-
-                // Create a simple fallback image instead of setting Background (which Image doesn't support)
                 try
                 {
-                    // Create a solid green rectangle as an absolute fallback
-                    DrawingVisual drawingVisual = new DrawingVisual();
-                    using (DrawingContext dc = drawingVisual.RenderOpen())
-                    {
-                        dc.DrawRectangle(
-                            new SolidColorBrush(Colors.LightGreen),
-                            new Pen(Brushes.Green, 2),
-                            new Rect(0, 0, 256, 256));
+                    BitmapImage bmp = new BitmapImage();
+                    bmp.BeginInit();
+                    bmp.UriSource = new Uri(fallbackPath);
+                    bmp.CacheOption = BitmapCacheOption.OnLoad;
+                    bmp.EndInit();
 
-                        // Add text to indicate there's an issue
-                        FormattedText text = new FormattedText(
-                            "Image Error",
-                            System.Globalization.CultureInfo.CurrentCulture,
-                            FlowDirection.LeftToRight,
-                            new Typeface("Arial"),
-                            16,
-                            Brushes.DarkGreen,
-                            VisualTreeHelper.GetDpi(drawingVisual).PixelsPerDip);
-
-                        dc.DrawText(text, new Point(128 - text.Width / 2, 128 - text.Height / 2));
-                    }
-
-                    // Convert to bitmap and use as source
-                    RenderTargetBitmap rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
-                    rtb.Render(drawingVisual);
-                    rtb.Freeze();
-                    BonsaiImage.Source = rtb;
+                    BonsaiImage.Source = bmp;
                 }
                 catch
                 {
-                    // If even that fails, just set Source to null to avoid crashing
-                    BonsaiImage.Source = null;
+                    // Create a simple green rectangle as the absolute last resort
+                    DrawingVisual dv = new DrawingVisual();
+                    using (DrawingContext dc = dv.RenderOpen())
+                    {
+                        dc.DrawRectangle(Brushes.LightGreen, null, new Rect(0, 0, 256, 256));
+                    }
+
+                    RenderTargetBitmap rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(dv);
+                    BonsaiImage.Source = rtb;
                 }
+            }
+            catch (Exception)
+            {
+                // If even the fallback fails, just don't crash the application
             }
         }
 
@@ -419,7 +414,7 @@ namespace BonsaiGotchiGame
         #region Action Button Handlers
         private void Water_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanWater) return;
 
             Bonsai.GiveWater();
             AddJournalEntry("You watered your bonsai.");
@@ -429,7 +424,7 @@ namespace BonsaiGotchiGame
 
         private void Prune_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanPrune) return;
 
             Bonsai.Prune();
             AddJournalEntry("You pruned your bonsai.");
@@ -439,7 +434,7 @@ namespace BonsaiGotchiGame
 
         private void Rest_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanRest) return;
 
             Bonsai.Rest();
             AddJournalEntry("Your bonsai is resting.");
@@ -449,7 +444,7 @@ namespace BonsaiGotchiGame
 
         private void Fertilize_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanFertilize) return;
 
             Bonsai.ApplyFertilizer();
             AddJournalEntry("You applied fertilizer to your bonsai.");
@@ -459,7 +454,7 @@ namespace BonsaiGotchiGame
 
         private void CleanArea_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanCleanArea) return;
 
             Bonsai.CleanArea();
             AddJournalEntry("You cleaned your bonsai's area.");
@@ -468,7 +463,7 @@ namespace BonsaiGotchiGame
 
         private void Exercise_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanExercise) return;
 
             Bonsai.LightExercise();
             AddJournalEntry("Your bonsai did some light exercise.");
@@ -477,7 +472,7 @@ namespace BonsaiGotchiGame
 
         private void Training_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanTrain) return;
 
             Bonsai.IntenseTraining();
             AddJournalEntry("Your bonsai completed an intense training session.");
@@ -486,7 +481,7 @@ namespace BonsaiGotchiGame
 
         private void Play_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanPlay) return;
 
             Bonsai.Play();
             AddJournalEntry("You played with your bonsai.");
@@ -495,7 +490,7 @@ namespace BonsaiGotchiGame
 
         private void Meditate_Click(object sender, RoutedEventArgs e)
         {
-            if (!IsInteractionEnabled) return;
+            if (!IsInteractionEnabled || !Bonsai.CanMeditate) return;
 
             Bonsai.Meditate();
             AddJournalEntry("You meditated with your bonsai.");

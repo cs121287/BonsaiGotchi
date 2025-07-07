@@ -77,22 +77,37 @@ namespace BonsaiGotchiGame.Models
         private MoodState _moodState;
         private HealthCondition _healthCondition;
         private int _consecutiveDaysGoodCare;
-        private Dictionary<string, DateTime> _actionCooldowns;
-        private Dictionary<string, bool> _activeEffects;
+        private Dictionary<string, DateTime> _actionCooldowns = new Dictionary<string, DateTime>();
+        private Dictionary<string, bool> _activeEffects = new Dictionary<string, bool>();
 
-        // Cooldowns for actions (in hours)
+        // Cooldowns for actions (in minutes for testing purposes - will make the cooldowns shorter)
+        // Changed from hours to minutes for easier testing
         private readonly Dictionary<string, int> _actionCooldownTimes = new Dictionary<string, int>
         {
-            { "Water", 8 },
-            { "Prune", 12 },
-            { "Rest", 2 },
-            { "Fertilize", 24 },
-            { "CleanArea", 12 },
-            { "LightExercise", 4 },
-            { "IntenseTraining", 8 },
-            { "Play", 6 },
-            { "Meditation", 4 }
+            { "Water", 2 },      // 2 minutes cooldown
+            { "Prune", 3 },      // 3 minutes cooldown
+            { "Rest", 1 },       // 1 minute cooldown
+            { "Fertilize", 5 },  // 5 minutes cooldown
+            { "CleanArea", 4 },  // 4 minutes cooldown
+            { "LightExercise", 2 }, // 2 minutes cooldown
+            { "IntenseTraining", 3 }, // 3 minutes cooldown
+            { "Play", 2 },       // 2 minutes cooldown
+            { "Meditation", 2 }  // 2 minutes cooldown
         };
+
+        // Track which actions were on cooldown in the previous update
+        private HashSet<string> _previousCooldownActions = new HashSet<string>();
+
+        // Properties for binding to UI
+        private bool _canWater = true;
+        private bool _canPrune = true;
+        private bool _canRest = true;
+        private bool _canFertilize = true;
+        private bool _canCleanArea = true;
+        private bool _canExercise = true;
+        private bool _canTrain = true;
+        private bool _canPlay = true;
+        private bool _canMeditate = true;
 
         public string Name
         {
@@ -289,16 +304,173 @@ namespace BonsaiGotchiGame.Models
 
         public int XPToNextLevel => GetXPForNextLevel() - XP;
 
-        // Action availability properties
-        public bool CanWater => !IsActionOnCooldown("Water");
-        public bool CanPrune => !IsActionOnCooldown("Prune");
-        public bool CanRest => !IsActionOnCooldown("Rest");
-        public bool CanFertilize => !IsActionOnCooldown("Fertilize");
-        public bool CanCleanArea => !IsActionOnCooldown("CleanArea");
-        public bool CanExercise => !IsActionOnCooldown("LightExercise") && Energy > 30;
-        public bool CanTrain => !IsActionOnCooldown("IntenseTraining") && Energy > 50;
-        public bool CanPlay => !IsActionOnCooldown("Play") && Energy > 30;
-        public bool CanMeditate => !IsActionOnCooldown("Meditation");
+        // Action availability properties - modified to use backing fields and notify properly
+        public bool CanWater
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Water");
+                if (_canWater != result)
+                {
+                    _canWater = result;
+                    OnPropertyChanged();
+                }
+                return _canWater;
+            }
+        }
+
+        public bool CanPrune
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Prune");
+                if (_canPrune != result)
+                {
+                    _canPrune = result;
+                    OnPropertyChanged();
+                }
+                return _canPrune;
+            }
+        }
+
+        public bool CanRest
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Rest");
+                if (_canRest != result)
+                {
+                    _canRest = result;
+                    OnPropertyChanged();
+                }
+                return _canRest;
+            }
+        }
+
+        public bool CanFertilize
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Fertilize");
+                if (_canFertilize != result)
+                {
+                    _canFertilize = result;
+                    OnPropertyChanged();
+                }
+                return _canFertilize;
+            }
+        }
+
+        public bool CanCleanArea
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("CleanArea");
+                if (_canCleanArea != result)
+                {
+                    _canCleanArea = result;
+                    OnPropertyChanged();
+                }
+                return _canCleanArea;
+            }
+        }
+
+        public bool CanExercise
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("LightExercise") && Energy > 30;
+                if (_canExercise != result)
+                {
+                    _canExercise = result;
+                    OnPropertyChanged();
+                }
+                return _canExercise;
+            }
+        }
+
+        public bool CanTrain
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("IntenseTraining") && Energy > 50;
+                if (_canTrain != result)
+                {
+                    _canTrain = result;
+                    OnPropertyChanged();
+                }
+                return _canTrain;
+            }
+        }
+
+        public bool CanPlay
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Play") && Energy > 30;
+                if (_canPlay != result)
+                {
+                    _canPlay = result;
+                    OnPropertyChanged();
+                }
+                return _canPlay;
+            }
+        }
+
+        public bool CanMeditate
+        {
+            get
+            {
+                bool result = !IsActionOnCooldown("Meditation");
+                if (_canMeditate != result)
+                {
+                    _canMeditate = result;
+                    OnPropertyChanged();
+                }
+                return _canMeditate;
+            }
+        }
+
+        // Public methods to help with cooldown visualization
+        public TimeSpan GetRemainingCooldown(string action)
+        {
+            // Convert action name to actual cooldown key if needed
+            string cooldownKey = ConvertActionNameToCooldownKey(action);
+
+            if (!_actionCooldowns.TryGetValue(cooldownKey, out DateTime lastUsed))
+                return TimeSpan.Zero;
+
+            if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
+                return TimeSpan.Zero;
+
+            DateTime cooldownEnd = lastUsed.AddMinutes(cooldownMinutes);
+            TimeSpan remaining = cooldownEnd - DateTime.Now;
+
+            return remaining.TotalSeconds > 0 ? remaining : TimeSpan.Zero;
+        }
+
+        public TimeSpan GetTotalCooldownTime(string action)
+        {
+            // Convert action name to actual cooldown key if needed
+            string cooldownKey = ConvertActionNameToCooldownKey(action);
+
+            if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
+                return TimeSpan.Zero;
+
+            return TimeSpan.FromMinutes(cooldownMinutes);
+        }
+
+        private string ConvertActionNameToCooldownKey(string action)
+        {
+            // Map UI action names to internal cooldown keys
+            switch (action)
+            {
+                case "Exercise": return "LightExercise";
+                case "Train": return "IntenseTraining";
+                case "Meditate": return "Meditation";
+                default: return action;
+            }
+        }
 
         public Bonsai(string name = "Bonsai")
         {
@@ -332,6 +504,7 @@ namespace BonsaiGotchiGame.Models
             // Initialize cooldown tracking
             _actionCooldowns = new Dictionary<string, DateTime>();
             _activeEffects = new Dictionary<string, bool>();
+            _previousCooldownActions = new HashSet<string>();
 
             // Initial update
             UpdateMoodState();
@@ -351,9 +524,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Water");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanWater));
         }
 
         public void Prune()
@@ -373,9 +543,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Prune");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanPrune));
         }
 
         public void Rest()
@@ -390,9 +557,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Rest");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanRest));
         }
 
         public void ApplyFertilizer()
@@ -408,9 +572,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Fertilize");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanFertilize));
         }
 
         // New activity methods for XP system
@@ -425,9 +586,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("CleanArea");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanCleanArea));
         }
 
         public void LightExercise()
@@ -445,9 +603,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("LightExercise");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanExercise));
         }
 
         public void IntenseTraining()
@@ -478,9 +633,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("IntenseTraining");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanTrain));
         }
 
         public void Play()
@@ -498,9 +650,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Play");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanPlay));
         }
 
         public void Meditate()
@@ -513,9 +662,6 @@ namespace BonsaiGotchiGame.Models
 
             // Set cooldown
             SetActionCooldown("Meditation");
-
-            // Property updates
-            OnPropertyChanged(nameof(CanMeditate));
         }
 
         // Feeding methods
@@ -694,6 +840,9 @@ namespace BonsaiGotchiGame.Models
             // Process active effects like delayed mood changes
             ProcessActiveEffects();
 
+            // Important - check for expired cooldowns
+            CheckForExpiredCooldowns();
+
             // Update age (1 day per real hour, affected by time speed)
             Age += (int)(timeSinceLastUpdate.TotalHours * timeSpeedMultiplier);
 
@@ -718,8 +867,24 @@ namespace BonsaiGotchiGame.Models
 
             LastUpdateTime = DateTime.Now;
 
-            // Update all action availability properties
-            UpdateActionAvailability();
+            // Force refresh all action availability properties
+            RefreshAllActionAvailability();
+        }
+
+        // New method to refresh all action availability properties
+        private void RefreshAllActionAvailability()
+        {
+            // These calls will trigger OnPropertyChanged if the values have changed
+            bool temp;
+            temp = CanWater;
+            temp = CanPrune;
+            temp = CanRest;
+            temp = CanFertilize;
+            temp = CanCleanArea;
+            temp = CanExercise;
+            temp = CanTrain;
+            temp = CanPlay;
+            temp = CanMeditate;
         }
 
         // XP System helper methods
@@ -935,6 +1100,47 @@ namespace BonsaiGotchiGame.Models
         private void SetActionCooldown(string action)
         {
             _actionCooldowns[action] = DateTime.Now;
+
+            // Force update the corresponding Can property
+            switch (action)
+            {
+                case "Water":
+                    _canWater = false;
+                    OnPropertyChanged(nameof(CanWater));
+                    break;
+                case "Prune":
+                    _canPrune = false;
+                    OnPropertyChanged(nameof(CanPrune));
+                    break;
+                case "Rest":
+                    _canRest = false;
+                    OnPropertyChanged(nameof(CanRest));
+                    break;
+                case "Fertilize":
+                    _canFertilize = false;
+                    OnPropertyChanged(nameof(CanFertilize));
+                    break;
+                case "CleanArea":
+                    _canCleanArea = false;
+                    OnPropertyChanged(nameof(CanCleanArea));
+                    break;
+                case "LightExercise":
+                    _canExercise = false;
+                    OnPropertyChanged(nameof(CanExercise));
+                    break;
+                case "IntenseTraining":
+                    _canTrain = false;
+                    OnPropertyChanged(nameof(CanTrain));
+                    break;
+                case "Play":
+                    _canPlay = false;
+                    OnPropertyChanged(nameof(CanPlay));
+                    break;
+                case "Meditation":
+                    _canMeditate = false;
+                    OnPropertyChanged(nameof(CanMeditate));
+                    break;
+            }
         }
 
         private bool IsActionOnCooldown(string action)
@@ -942,10 +1148,10 @@ namespace BonsaiGotchiGame.Models
             if (!_actionCooldowns.TryGetValue(action, out DateTime lastUsed))
                 return false;
 
-            if (!_actionCooldownTimes.TryGetValue(action, out int cooldownHours))
+            if (!_actionCooldownTimes.TryGetValue(action, out int cooldownMinutes))
                 return false;
 
-            return (DateTime.Now - lastUsed).TotalHours < cooldownHours;
+            return (DateTime.Now - lastUsed).TotalMinutes < cooldownMinutes;
         }
 
         private DateTime GetActionCooldownTime(string action)
@@ -953,18 +1159,71 @@ namespace BonsaiGotchiGame.Models
             return _actionCooldowns.TryGetValue(action, out DateTime time) ? time : DateTime.MinValue;
         }
 
-        private void UpdateActionAvailability()
+        // New method to check for expired cooldowns and notify when actions become available
+        private void CheckForExpiredCooldowns()
         {
-            // Update all action availability properties
-            OnPropertyChanged(nameof(CanWater));
-            OnPropertyChanged(nameof(CanPrune));
-            OnPropertyChanged(nameof(CanRest));
-            OnPropertyChanged(nameof(CanFertilize));
-            OnPropertyChanged(nameof(CanCleanArea));
-            OnPropertyChanged(nameof(CanExercise));
-            OnPropertyChanged(nameof(CanTrain));
-            OnPropertyChanged(nameof(CanPlay));
-            OnPropertyChanged(nameof(CanMeditate));
+            bool waterOnCooldown = IsActionOnCooldown("Water");
+            if (!waterOnCooldown && _canWater == false)
+            {
+                _canWater = true;
+                OnPropertyChanged(nameof(CanWater));
+            }
+
+            bool pruneOnCooldown = IsActionOnCooldown("Prune");
+            if (!pruneOnCooldown && _canPrune == false)
+            {
+                _canPrune = true;
+                OnPropertyChanged(nameof(CanPrune));
+            }
+
+            bool restOnCooldown = IsActionOnCooldown("Rest");
+            if (!restOnCooldown && _canRest == false)
+            {
+                _canRest = true;
+                OnPropertyChanged(nameof(CanRest));
+            }
+
+            bool fertilizeOnCooldown = IsActionOnCooldown("Fertilize");
+            if (!fertilizeOnCooldown && _canFertilize == false)
+            {
+                _canFertilize = true;
+                OnPropertyChanged(nameof(CanFertilize));
+            }
+
+            bool cleanAreaOnCooldown = IsActionOnCooldown("CleanArea");
+            if (!cleanAreaOnCooldown && _canCleanArea == false)
+            {
+                _canCleanArea = true;
+                OnPropertyChanged(nameof(CanCleanArea));
+            }
+
+            bool exerciseOnCooldown = IsActionOnCooldown("LightExercise") || Energy <= 30;
+            if (!exerciseOnCooldown && _canExercise == false)
+            {
+                _canExercise = true;
+                OnPropertyChanged(nameof(CanExercise));
+            }
+
+            bool trainingOnCooldown = IsActionOnCooldown("IntenseTraining") || Energy <= 50;
+            if (!trainingOnCooldown && _canTrain == false)
+            {
+                _canTrain = true;
+                OnPropertyChanged(nameof(CanTrain));
+            }
+
+            bool playOnCooldown = IsActionOnCooldown("Play") || Energy <= 30;
+            if (!playOnCooldown && _canPlay == false)
+            {
+                _canPlay = true;
+                OnPropertyChanged(nameof(CanPlay));
+            }
+
+            bool meditateOnCooldown = IsActionOnCooldown("Meditation");
+            if (!meditateOnCooldown && _canMeditate == false)
+            {
+                _canMeditate = true;
+                OnPropertyChanged(nameof(CanMeditate));
+            }
         }
 
         public event PropertyChangedEventHandler? PropertyChanged;

@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Threading;
 using System.Diagnostics;
 using System.Text;
+using System.Threading.Tasks;
 using BonsaiGotchiGame.Services;
 using BonsaiGotchiGame.ViewModels;
 
@@ -12,6 +13,7 @@ namespace BonsaiGotchiGame
     public partial class App : Application
     {
         private SaveLoadService? _saveLoadService;
+        private static readonly object _logLock = new object();
 
         protected override void OnStartup(StartupEventArgs e)
         {
@@ -29,15 +31,23 @@ namespace BonsaiGotchiGame
                 _saveLoadService = new SaveLoadService();
                 LogStartup("SaveLoadService initialized");
 
-                // Create application data directory if it doesn't exist
+                // Directory creation is now handled in Program.cs, but we verify it exists
                 string appDataPath = Path.Combine(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
                     "BonsaiGotchiGame");
 
                 if (!Directory.Exists(appDataPath))
                 {
-                    Directory.CreateDirectory(appDataPath);
-                    LogStartup($"Created app data directory: {appDataPath}");
+                    try
+                    {
+                        Directory.CreateDirectory(appDataPath);
+                        LogStartup($"Created app data directory: {appDataPath}");
+                    }
+                    catch (Exception ex)
+                    {
+                        LogStartup($"Failed to create app data directory: {ex.Message}");
+                        throw new InvalidOperationException($"Could not create application data directory: {appDataPath}", ex);
+                    }
                 }
 
                 // FIXED: Changed how the MainWindow is created and initialized
@@ -46,21 +56,32 @@ namespace BonsaiGotchiGame
                 MainWindow = new MainWindow();
                 LogStartup("MainWindow instance created");
 
-                // Delay showing the window to allow all bindings to stabilize
-                Dispatcher.BeginInvoke(DispatcherPriority.Background, new Action(() =>
+                // Use Loaded priority instead of Background to avoid race conditions
+                Dispatcher.BeginInvoke(DispatcherPriority.Loaded, new Action(() =>
                 {
                     try
                     {
                         LogStartup("Showing MainWindow");
-                        MainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
-                        MainWindow.Show();
-                        MainWindow.Activate();
-                        LogStartup("MainWindow displayed and activated");
+                        if (MainWindow != null)
+                        {
+                            MainWindow.WindowStartupLocation = WindowStartupLocation.CenterScreen;
+                            MainWindow.Show();
+                            MainWindow.Activate();
+                            LogStartup("MainWindow displayed and activated");
+                        }
+                        else
+                        {
+                            LogStartup("MainWindow is null, cannot display");
+                            throw new InvalidOperationException("MainWindow was not properly initialized");
+                        }
                     }
                     catch (Exception ex)
                     {
                         LogStartup($"Error showing MainWindow: {ex.Message}");
-                        LogStartup($"Stack trace: {ex.StackTrace}");
+                        if (ex.StackTrace != null)
+                        {
+                            LogStartup($"Stack trace: {ex.StackTrace}");
+                        }
                         MessageBox.Show($"Error displaying application window: {ex.Message}",
                             "Display Error", MessageBoxButton.OK, MessageBoxImage.Error);
                     }
@@ -69,7 +90,10 @@ namespace BonsaiGotchiGame
             catch (Exception ex)
             {
                 LogStartup($"Critical error in OnStartup: {ex.Message}");
-                LogStartup($"Stack trace: {ex.StackTrace}");
+                if (ex.StackTrace != null)
+                {
+                    LogStartup($"Stack trace: {ex.StackTrace}");
+                }
                 MessageBox.Show($"Error during application startup: {ex.Message}\n\n{ex.StackTrace}",
                     "Startup Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
@@ -87,12 +111,18 @@ namespace BonsaiGotchiGame
                     "BonsaiGotchiGame",
                     "startup_log.txt");
 
-                File.AppendAllText(logPath, logEntry);
+                // Use lock to prevent concurrent access issues
+                lock (_logLock)
+                {
+                    File.AppendAllText(logPath, logEntry);
+                }
+
                 Debug.WriteLine($"BonsaiGotchi: {message}");
             }
-            catch
+            catch (Exception ex)
             {
-                // If logging fails, there's not much we can do
+                // Log to debug output if file logging fails
+                Debug.WriteLine($"BonsaiGotchi logging failed: {ex.Message}");
             }
         }
 
@@ -107,27 +137,44 @@ namespace BonsaiGotchiGame
                 {
                     if (mainWindow.DataContext is ViewModels.MainViewModel viewModel && viewModel.Bonsai != null)
                     {
-                        // Save the bonsai's state when the application exits
-                        _saveLoadService.SaveBonsaiAsync(viewModel.Bonsai).Wait();
-                        LogStartup("Final save completed");
+                        // FIXED: Use proper async handling instead of .Wait() to avoid deadlocks
+                        try
+                        {
+                            // Use Task.Run to avoid UI thread blocking
+                            Task.Run(async () =>
+                            {
+                                await _saveLoadService.SaveBonsaiAsync(viewModel.Bonsai).ConfigureAwait(false);
+                            }).Wait(TimeSpan.FromSeconds(5)); // Give it 5 seconds max to complete
+
+                            LogStartup("Final save completed");
+                        }
+                        catch (Exception saveEx)
+                        {
+                            LogStartup($"Error during final save: {saveEx.Message}");
+                        }
                     }
 
-                    // Make sure the window properly disposes its resources
-                    (mainWindow as IDisposable)?.Dispose();
-                    LogStartup("MainWindow disposed");
+                    // FIXED: Proper disposal check and handling
+                    if (mainWindow is IDisposable disposable)
+                    {
+                        disposable.Dispose();
+                        LogStartup("MainWindow disposed");
+                    }
                 }
 
                 // Release service references
                 _saveLoadService = null;
 
-                // Force garbage collection before exit
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
+                // REMOVED: Forced garbage collection as it's not recommended
                 LogStartup("Application exit complete");
             }
             catch (Exception ex)
             {
                 LogStartup($"Error during exit: {ex.Message}");
+                if (ex.StackTrace != null)
+                {
+                    LogStartup($"Stack trace: {ex.StackTrace}");
+                }
                 MessageBox.Show($"Error saving data on exit: {ex.Message}",
                     "Exit Error", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
@@ -144,9 +191,11 @@ namespace BonsaiGotchiGame
                 MessageBox.Show($"An unexpected error occurred: {(e.ExceptionObject as Exception)?.Message}",
                                 "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            catch
+            catch (Exception ex)
             {
-                // If we can't even show an error message, there's not much we can do
+                // Log the error instead of silently ignoring
+                LogError(ex);
+                Debug.WriteLine($"Failed to show error message: {ex.Message}");
             }
         }
 
@@ -159,9 +208,11 @@ namespace BonsaiGotchiGame
                 MessageBox.Show($"An unexpected error occurred: {e.Exception.Message}",
                                 "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
-            catch
+            catch (Exception ex)
             {
-                // If we can't even show an error message, there's not much we can do
+                // Log the error instead of silently ignoring
+                LogError(ex);
+                Debug.WriteLine($"Failed to show error message: {ex.Message}");
             }
 
             e.Handled = true;
@@ -179,13 +230,20 @@ namespace BonsaiGotchiGame
                     "BonsaiGotchiGame",
                     "error_log.txt");
 
-                string logEntry = $"[{DateTime.Now}] {ex.GetType()}: {ex.Message}\n{ex.StackTrace}\n\n";
-                File.AppendAllText(logPath, logEntry);
+                string logEntry = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] {ex.GetType()}: {ex.Message}\n{ex.StackTrace}\n\n";
+
+                // Use lock to prevent concurrent access issues
+                lock (_logLock)
+                {
+                    File.AppendAllText(logPath, logEntry);
+                }
+
                 Debug.WriteLine($"BonsaiGotchi ERROR: {ex.Message}");
             }
-            catch
+            catch (Exception logEx)
             {
-                // If logging fails, there's not much we can do
+                // Log to debug output if file logging fails
+                Debug.WriteLine($"BonsaiGotchi error logging failed: {logEx.Message}");
             }
         }
     }

@@ -141,7 +141,7 @@ namespace BonsaiGotchiGame
             button.IsEnabled = isEnabled;
 
             // If action was previously on cooldown and is now enabled
-            if (isEnabled && _cooldownTimers.ContainsKey(actionName))
+            if (!(!isEnabled || !_cooldownTimers.ContainsKey(actionName)))
             {
                 // Stop the cooldown timer
                 _cooldownTimers[actionName].Stop();

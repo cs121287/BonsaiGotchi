@@ -752,19 +752,12 @@
                   BorderThickness="1">
             <Border Background="White" MaxHeight="200">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <ItemsControl x:Name="JournalEntriesList" Margin="8">
+                    <ItemsControl x:Name="JournalEntriesList" Margin="8" ItemsSource="{Binding JournalEntries}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding}" Margin="0,2" TextWrapping="Wrap"/>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
-                        <ItemsControl.Items>
-                            <TextBlock Text="[Day 1] Your bonsai was born!" Foreground="#2E7D32"/>
-                            <TextBlock Text="[Day 1] You watered your bonsai for the first time." Foreground="#1976D2"/>
-                            <TextBlock Text="[Day 2] Your bonsai is growing nicely!" Foreground="#388E3C"/>
-                            <TextBlock Text="[Day 3] You applied fertilizer to boost growth." Foreground="#F57C00"/>
-                            <TextBlock Text="[Day 4] Your bonsai entered its first bloom cycle!" Foreground="#D81B60"/>
-                        </ItemsControl.Items>
                     </ItemsControl>
                 </ScrollViewer>
             </Border>

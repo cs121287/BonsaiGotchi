@@ -1,20 +1,23 @@
-﻿using System;
+﻿using BonsaiGotchiGame.Models;
+using BonsaiGotchiGame.Views;
+using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using System.Windows.Threading;
-using BonsaiGotchiGame.Models;
-using BonsaiGotchiGame.Views;
+using Path = System.IO.Path;
 
 namespace BonsaiGotchiGame
 {
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
-        private readonly string _saveFilePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BonsaiGotchiGame", "save.json");
+        private readonly string _saveFilePath = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "BonsaiGotchiGame", "save.json");
         private readonly DispatcherTimer _gameTimer = new DispatcherTimer();
         private readonly ObservableCollection<string> _journalEntries = new ObservableCollection<string>();
         private string _statusMessage = "Your bonsai is doing well.";
@@ -163,13 +166,130 @@ namespace BonsaiGotchiGame
         {
             try
             {
-                // Just use the fallback image directly
-                BonsaiImage.Source = new BitmapImage(new Uri("pack://application:,,,/Assets/Images/fallback.png"));
+                if (Bonsai == null) return;
+
+                string state = Bonsai.CurrentState.ToString().ToLower();
+                string stage = Bonsai.GrowthStage.ToString().ToLower();
+
+                // Create a list of paths to try in order
+                List<string> imagePaths = new List<string>
+        {
+            $"pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/bonsai_{stage}_{state}.png",
+            $"pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/bonsai_{stage}.png",
+            "pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/fallback.png",
+            "pack://application:,,,/BonsaiGotchiGame;component/Assets/Images/idle.png",
+            "pack://application:,,,/Assets/Images/fallback.png",
+            "pack://application:,,,/Assets/Images/idle.png"
+        };
+
+                bool imageLoaded = false;
+                foreach (string path in imagePaths)
+                {
+                    try
+                    {
+                        // Load image with explicit options to ensure proper loading
+                        BitmapImage bmp = new BitmapImage();
+                        bmp.BeginInit();
+                        bmp.UriSource = new Uri(path);
+                        bmp.CacheOption = BitmapCacheOption.OnLoad;
+                        bmp.EndInit();
+                        bmp.Freeze(); // Make it thread-safe
+
+                        BonsaiImage.Source = bmp;
+                        imageLoaded = true;
+                        break; // Successfully loaded an image
+                    }
+                    catch
+                    {
+                        // Continue to next path
+                        continue;
+                    }
+                }
+
+                // If no image could be loaded, create a fallback image
+                if (!imageLoaded)
+                {
+                    // Create a simple colored rectangle as absolute fallback
+                    Rectangle rect = new Rectangle
+                    {
+                        Fill = new SolidColorBrush(Colors.ForestGreen),
+                        Width = 256,
+                        Height = 256
+                    };
+
+                    // Draw a simple bonsai
+                    DrawingVisual drawingVisual = new DrawingVisual();
+                    using (DrawingContext dc = drawingVisual.RenderOpen())
+                    {
+                        // Draw pot
+                        dc.DrawRectangle(
+                            new SolidColorBrush(Colors.SaddleBrown),
+                            new Pen(Brushes.Brown, 2),
+                            new Rect(128 - 40, 200, 80, 40));
+
+                        // Draw trunk
+                        dc.DrawRectangle(
+                            new SolidColorBrush(Colors.Brown),
+                            null,
+                            new Rect(128 - 10, 120, 20, 80));
+
+                        // Draw foliage
+                        dc.DrawEllipse(
+                            new SolidColorBrush(Colors.ForestGreen),
+                            new Pen(Brushes.DarkGreen, 2),
+                            new Point(128, 80),
+                            60, 50);
+                    }
+
+                    // Render to bitmap
+                    RenderTargetBitmap rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(drawingVisual);
+                    rtb.Freeze(); // Make it thread-safe
+
+                    BonsaiImage.Source = rtb;
+                }
             }
             catch (Exception ex)
             {
-                // If the fallback fails, show an error
-                MessageBox.Show($"Failed to load bonsai image: {ex.Message}", "Image Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                // Last resort - at least don't crash
+                System.Diagnostics.Debug.WriteLine($"Failed to load any bonsai image: {ex.Message}");
+
+                // Create a simple fallback image instead of setting Background (which Image doesn't support)
+                try
+                {
+                    // Create a solid green rectangle as an absolute fallback
+                    DrawingVisual drawingVisual = new DrawingVisual();
+                    using (DrawingContext dc = drawingVisual.RenderOpen())
+                    {
+                        dc.DrawRectangle(
+                            new SolidColorBrush(Colors.LightGreen),
+                            new Pen(Brushes.Green, 2),
+                            new Rect(0, 0, 256, 256));
+
+                        // Add text to indicate there's an issue
+                        FormattedText text = new FormattedText(
+                            "Image Error",
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            FlowDirection.LeftToRight,
+                            new Typeface("Arial"),
+                            16,
+                            Brushes.DarkGreen,
+                            VisualTreeHelper.GetDpi(drawingVisual).PixelsPerDip);
+
+                        dc.DrawText(text, new Point(128 - text.Width / 2, 128 - text.Height / 2));
+                    }
+
+                    // Convert to bitmap and use as source
+                    RenderTargetBitmap rtb = new RenderTargetBitmap(256, 256, 96, 96, PixelFormats.Pbgra32);
+                    rtb.Render(drawingVisual);
+                    rtb.Freeze();
+                    BonsaiImage.Source = rtb;
+                }
+                catch
+                {
+                    // If even that fails, just set Source to null to avoid crashing
+                    BonsaiImage.Source = null;
+                }
             }
         }
 

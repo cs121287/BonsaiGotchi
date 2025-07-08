@@ -2,6 +2,7 @@ using System;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Collections.Generic;
+using System.Threading;
 
 namespace BonsaiGotchiGame.Models
 {
@@ -52,8 +53,16 @@ namespace BonsaiGotchiGame.Models
     public partial class Bonsai : INotifyPropertyChanged
     {
         private readonly object _updateLock = new object();
-        private readonly object _xpLock = new object(); // New lock for XP operations
+        private readonly object _xpLock = new object();
+        private readonly object _currencyLock = new object();
+        private readonly object _propertyLock = new object();
         protected static readonly Random _random = new Random();
+
+        // Batched property change notifications for performance
+        private readonly HashSet<string> _pendingPropertyChanges = new HashSet<string>();
+        private readonly Timer? _propertyChangeTimer;
+        private bool _isUpdatingProperties = false;
+        private const int PropertyChangeDelayMs = 50; // Batch property changes
 
         private string _name = string.Empty;
         private int _water;
@@ -64,14 +73,14 @@ namespace BonsaiGotchiGame.Models
         private BonsaiState _currentState;
         private DateTime _lastUpdateTime;
 
-        // New game time properties
+        // Game time properties
         private int _gameHour;
         private int _gameMinute;
         private int _gameDay;
         private int _gameMonth;
         private int _gameYear;
 
-        // New XP system properties
+        // XP system properties
         private int _xp;
         private int _level;
         private int _mood;
@@ -84,24 +93,23 @@ namespace BonsaiGotchiGame.Models
         private Dictionary<string, DateTime> _actionCooldowns = new Dictionary<string, DateTime>();
         protected Dictionary<string, bool> _activeEffects = new Dictionary<string, bool>();
 
-        // Cooldowns for actions (in minutes for testing purposes)
+        // Cooldown timings
         private readonly Dictionary<string, int> _actionCooldownTimes = new Dictionary<string, int>
         {
-            { "Water", 2 },      // 2 minutes cooldown
-            { "Prune", 3 },      // 3 minutes cooldown
-            { "Rest", 1 },       // 1 minute cooldown
-            { "Fertilize", 5 },  // 5 minutes cooldown
-            { "CleanArea", 4 },  // 4 minutes cooldown
-            { "LightExercise", 2 }, // 2 minutes cooldown
-            { "IntenseTraining", 3 }, // 3 minutes cooldown
-            { "Play", 2 },       // 2 minutes cooldown
-            { "Meditation", 2 }  // 2 minutes cooldown
+            { "Water", 2 },
+            { "Prune", 3 },
+            { "Rest", 1 },
+            { "Fertilize", 5 },
+            { "CleanArea", 4 },
+            { "LightExercise", 2 },
+            { "IntenseTraining", 3 },
+            { "Play", 2 },
+            { "Meditation", 2 }
         };
 
-        // Track which actions were on cooldown in the previous update
         private HashSet<string> _previousCooldownActions = new HashSet<string>();
 
-        // Properties for binding to UI - backing fields for all CanX properties
+        // Cached property values for performance
         private bool _canWater = true;
         private bool _canPrune = true;
         private bool _canRest = true;
@@ -112,12 +120,9 @@ namespace BonsaiGotchiGame.Models
         private bool _canPlay = true;
         private bool _canMeditate = true;
 
-        // XP gain tracking for UI updates
         private int _lastXpGain = 0;
-
-        // Add inventory and currency properties
         private Inventory? _inventory;
-        private Currency _currency = new Currency();
+        private Currency? _currency;
 
         // Constants for food item IDs
         public const string BASIC_FERTILIZER_ID = "basic_fertilizer";
@@ -134,67 +139,189 @@ namespace BonsaiGotchiGame.Models
 
         public Currency Currency
         {
-            get => _currency;
-            set { _currency = value; OnPropertyChanged(); }
+            get
+            {
+                lock (_currencyLock)
+                {
+                    if (_currency == null)
+                    {
+                        _currency = new Currency();
+                        QueuePropertyChanged();
+                    }
+                    return _currency;
+                }
+            }
+            set
+            {
+                lock (_currencyLock)
+                {
+                    if (_currency != value)
+                    {
+                        _currency = value ?? new Currency();
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
         public string Name
         {
             get => _name;
-            set { _name = value; OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    if (_name != value)
+                    {
+                        ValidateNameInput(value);
+                        _name = value ?? string.Empty;
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
         public int Water
         {
             get => _water;
-            set { _water = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int clampedValue = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_water, clampedValue, "Water");
+                    if (_water != clampedValue)
+                    {
+                        _water = clampedValue;
+                        QueuePropertyChanged();
+                        ValidateOverallState();
+                    }
+                }
+            }
         }
 
         public int Health
         {
             get => _health;
-            set { _health = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int clampedValue = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_health, clampedValue, "Health");
+                    if (_health != clampedValue)
+                    {
+                        _health = clampedValue;
+                        QueuePropertyChanged();
+                        ValidateOverallState();
+                    }
+                }
+            }
         }
 
         public int Growth
         {
             get => _growth;
-            set { _growth = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int clampedValue = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_growth, clampedValue, "Growth");
+                    if (_growth != clampedValue)
+                    {
+                        _growth = clampedValue;
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
         public int Energy
         {
             get => _energy;
-            set { _energy = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int clampedValue = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_energy, clampedValue, "Energy");
+                    if (_energy != clampedValue)
+                    {
+                        _energy = clampedValue;
+                        QueuePropertyChanged();
+                        ValidateOverallState();
+                    }
+                }
+            }
         }
 
         public int Age
         {
             get => _age;
-            set { _age = Math.Max(0, value); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int validatedValue = Math.Max(0, value);
+                    if (_age != validatedValue)
+                    {
+                        _age = validatedValue;
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
         public BonsaiState CurrentState
         {
             get => _currentState;
-            set { _currentState = value; OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    if (_currentState != value && Enum.IsDefined(typeof(BonsaiState), value))
+                    {
+                        _currentState = value;
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
         public DateTime LastUpdateTime
         {
             get => _lastUpdateTime;
-            set { _lastUpdateTime = value; OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    DateTime validatedTime = value > DateTime.Now.AddMinutes(5) ? DateTime.Now : value;
+                    if (_lastUpdateTime != validatedTime)
+                    {
+                        _lastUpdateTime = validatedTime;
+                        QueuePropertyChanged();
+                    }
+                }
+            }
         }
 
-        // Add properties for in-game time - FIXED: Added bounds checking
+        // Game time properties with batched notifications
         public int GameHour
         {
             get => _gameHour;
             set
             {
-                _gameHour = Math.Max(0, value % 24);
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(GameTimeDisplay));
+                lock (_propertyLock)
+                {
+                    int validatedHour = Math.Clamp(value, 0, 23);
+                    if (_gameHour != validatedHour)
+                    {
+                        _gameHour = validatedHour;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(GameTimeDisplay));
+                    }
+                }
             }
         }
 
@@ -203,14 +330,20 @@ namespace BonsaiGotchiGame.Models
             get => _gameMinute;
             set
             {
-                int newMinute = Math.Max(0, value % 60);
-                if (newMinute < _gameMinute && value > 0) // Hour rollover
+                lock (_propertyLock)
                 {
-                    GameHour += 1;
+                    int validatedMinute = Math.Clamp(value, 0, 59);
+                    bool hourRollover = validatedMinute < _gameMinute && value >= 60;
+
+                    _gameMinute = validatedMinute;
+                    QueuePropertyChanged();
+                    QueuePropertyChanged(nameof(GameTimeDisplay));
+
+                    if (hourRollover)
+                    {
+                        GameHour = (GameHour + 1) % 24;
+                    }
                 }
-                _gameMinute = newMinute;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(GameTimeDisplay));
             }
         }
 
@@ -219,14 +352,24 @@ namespace BonsaiGotchiGame.Models
             get => _gameDay;
             set
             {
-                int newDay = Math.Max(1, (value - 1) % 30 + 1);
-                if (newDay < _gameDay && value > 1) // Month rollover
+                lock (_propertyLock)
                 {
-                    GameMonth += 1;
+                    int validatedDay = Math.Clamp(value, 1, 30);
+                    bool monthRollover = validatedDay < _gameDay && value > 30;
+
+                    _gameDay = validatedDay;
+                    QueuePropertyChanged();
+                    QueuePropertyChanged(nameof(GameDateDisplay));
+
+                    if (monthRollover)
+                    {
+                        GameMonth = GameMonth < 12 ? GameMonth + 1 : 1;
+                        if (GameMonth == 1)
+                        {
+                            GameYear++;
+                        }
+                    }
                 }
-                _gameDay = newDay;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(GameDateDisplay));
             }
         }
 
@@ -235,14 +378,16 @@ namespace BonsaiGotchiGame.Models
             get => _gameMonth;
             set
             {
-                int newMonth = Math.Max(1, (value - 1) % 12 + 1);
-                if (newMonth < _gameMonth && value > 1) // Year rollover
+                lock (_propertyLock)
                 {
-                    GameYear += 1;
+                    int validatedMonth = Math.Clamp(value, 1, 12);
+                    if (_gameMonth != validatedMonth)
+                    {
+                        _gameMonth = validatedMonth;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(GameDateDisplay));
+                    }
                 }
-                _gameMonth = newMonth;
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(GameDateDisplay));
             }
         }
 
@@ -251,13 +396,20 @@ namespace BonsaiGotchiGame.Models
             get => _gameYear;
             set
             {
-                _gameYear = Math.Max(1, value);
-                OnPropertyChanged();
-                OnPropertyChanged(nameof(GameDateDisplay));
+                lock (_propertyLock)
+                {
+                    int validatedYear = Math.Max(1, value);
+                    if (_gameYear != validatedYear)
+                    {
+                        _gameYear = validatedYear;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(GameDateDisplay));
+                    }
+                }
             }
         }
 
-        // New XP system properties - FIXED: Added bounds checking
+        // XP system properties with optimized notifications
         public int XP
         {
             get => _xp;
@@ -266,19 +418,18 @@ namespace BonsaiGotchiGame.Models
                 lock (_xpLock)
                 {
                     int oldValue = _xp;
-                    _xp = Math.Max(0, value);
+                    int validatedXP = Math.Max(0, value);
 
-                    if (_xp != oldValue)
+                    if (_xp != validatedXP)
                     {
-                        // Calculate the gain for UI animation
+                        _xp = validatedXP;
                         _lastXpGain = _xp - oldValue;
 
-                        OnPropertyChanged();
-                        OnPropertyChanged(nameof(XPToNextLevel));
-                        OnPropertyChanged(nameof(LevelDisplay));
-                        OnPropertyChanged(nameof(XPPercentage));
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(XPToNextLevel));
+                        QueuePropertyChanged(nameof(LevelDisplay));
+                        QueuePropertyChanged(nameof(XPPercentage));
 
-                        // Check if this causes a level up
                         CheckForLevelUp();
                     }
                 }
@@ -290,16 +441,19 @@ namespace BonsaiGotchiGame.Models
             get => _level;
             private set
             {
-                if (_level != value)
+                lock (_propertyLock)
                 {
-                    _level = Math.Max(1, value);
-                    OnPropertyChanged();
+                    int validatedLevel = Math.Max(1, value);
+                    if (_level != validatedLevel)
+                    {
+                        _level = validatedLevel;
+                        QueuePropertyChanged();
 
-                    // Update related properties
-                    UpdateGrowthStage();
-                    OnPropertyChanged(nameof(LevelDisplay));
-                    OnPropertyChanged(nameof(XPToNextLevel));
-                    OnPropertyChanged(nameof(XPPercentage));
+                        UpdateGrowthStage();
+                        QueuePropertyChanged(nameof(LevelDisplay));
+                        QueuePropertyChanged(nameof(XPToNextLevel));
+                        QueuePropertyChanged(nameof(XPPercentage));
+                    }
                 }
             }
         }
@@ -309,16 +463,19 @@ namespace BonsaiGotchiGame.Models
             get => _mood;
             set
             {
-                int oldValue = _mood;
-                _mood = Math.Clamp(value, 0, 100);
-
-                if (_mood != oldValue)
+                lock (_propertyLock)
                 {
-                    OnPropertyChanged();
-                    UpdateMoodState();
+                    int oldValue = _mood;
+                    int validatedMood = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(oldValue, validatedMood, "Mood");
 
-                    // Update XP multiplier when mood changes
-                    OnPropertyChanged(nameof(XPMultiplier));
+                    if (_mood != validatedMood)
+                    {
+                        _mood = validatedMood;
+                        QueuePropertyChanged();
+                        UpdateMoodState();
+                        QueuePropertyChanged(nameof(XPMultiplier));
+                    }
                 }
             }
         }
@@ -326,13 +483,39 @@ namespace BonsaiGotchiGame.Models
         public int Hunger
         {
             get => _hunger;
-            set { _hunger = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int validatedHunger = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_hunger, validatedHunger, "Hunger");
+                    if (_hunger != validatedHunger)
+                    {
+                        _hunger = validatedHunger;
+                        QueuePropertyChanged();
+                        ValidateOverallState();
+                    }
+                }
+            }
         }
 
         public int Cleanliness
         {
             get => _cleanliness;
-            set { _cleanliness = Math.Clamp(value, 0, 100); OnPropertyChanged(); }
+            set
+            {
+                lock (_propertyLock)
+                {
+                    int validatedCleanliness = Math.Clamp(value, 0, 100);
+                    ValidateStatChange(_cleanliness, validatedCleanliness, "Cleanliness");
+                    if (_cleanliness != validatedCleanliness)
+                    {
+                        _cleanliness = validatedCleanliness;
+                        QueuePropertyChanged();
+                        ValidateOverallState();
+                    }
+                }
+            }
         }
 
         public GrowthStage GrowthStage
@@ -340,11 +523,14 @@ namespace BonsaiGotchiGame.Models
             get => _growthStage;
             private set
             {
-                if (_growthStage != value)
+                lock (_propertyLock)
                 {
-                    _growthStage = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(GrowthStageDisplay));
+                    if (_growthStage != value && Enum.IsDefined(typeof(GrowthStage), value))
+                    {
+                        _growthStage = value;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(GrowthStageDisplay));
+                    }
                 }
             }
         }
@@ -354,12 +540,15 @@ namespace BonsaiGotchiGame.Models
             get => _moodState;
             private set
             {
-                if (_moodState != value)
+                lock (_propertyLock)
                 {
-                    _moodState = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(MoodDisplay));
-                    OnPropertyChanged(nameof(XPMultiplier));
+                    if (_moodState != value && Enum.IsDefined(typeof(MoodState), value))
+                    {
+                        _moodState = value;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(MoodDisplay));
+                        QueuePropertyChanged(nameof(XPMultiplier));
+                    }
                 }
             }
         }
@@ -369,11 +558,14 @@ namespace BonsaiGotchiGame.Models
             get => _healthCondition;
             set
             {
-                if (_healthCondition != value)
+                lock (_propertyLock)
                 {
-                    _healthCondition = value;
-                    OnPropertyChanged();
-                    OnPropertyChanged(nameof(HealthConditionDisplay));
+                    if (_healthCondition != value && Enum.IsDefined(typeof(HealthCondition), value))
+                    {
+                        _healthCondition = value;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(HealthConditionDisplay));
+                    }
                 }
             }
         }
@@ -383,62 +575,70 @@ namespace BonsaiGotchiGame.Models
             get => _consecutiveDaysGoodCare;
             set
             {
-                if (_consecutiveDaysGoodCare != value)
+                lock (_propertyLock)
                 {
-                    _consecutiveDaysGoodCare = Math.Max(0, value);
-                    OnPropertyChanged();
-
-                    // Update XP multiplier when streak changes
-                    OnPropertyChanged(nameof(XPMultiplier));
-                    OnPropertyChanged(nameof(StreakBonusText));
+                    int validatedDays = Math.Max(0, value);
+                    if (_consecutiveDaysGoodCare != validatedDays)
+                    {
+                        _consecutiveDaysGoodCare = validatedDays;
+                        QueuePropertyChanged();
+                        QueuePropertyChanged(nameof(XPMultiplier));
+                        QueuePropertyChanged(nameof(StreakBonusText));
+                    }
                 }
             }
         }
 
-        // Formatted time and date for display
+        // Computed properties (cached for performance)
         public string GameTimeDisplay => $"{GameHour:D2}:{GameMinute:D2}";
-
         public string GameDateDisplay => $"Day {GameDay}, Month {GameMonth}, Year {GameYear}";
-
-        // XP System displays
         public string LevelDisplay => $"Level {Level} ({XP}/{GetXPForNextLevel()} XP)";
-
         public string MoodDisplay => MoodState.ToString();
-
         public string GrowthStageDisplay => GrowthStage.ToString();
-
         public string HealthConditionDisplay => HealthCondition.ToString();
 
-        // XP multiplier now includes both mood and streak components
         public double XPMultiplier
         {
             get
             {
-                double moodMultiplier = GetMoodMultiplier();
-                double streakBonus = GetStreakBonus();
-                return moodMultiplier * (1.0 + streakBonus);
+                try
+                {
+                    double moodMultiplier = GetMoodMultiplier();
+                    double streakBonus = GetStreakBonus();
+                    return Math.Max(0.1, moodMultiplier * (1.0 + streakBonus));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error calculating XP multiplier: {ex.Message}");
+                    return 1.0;
+                }
             }
         }
 
         public string StreakBonusText => $"+{GetStreakBonus():P0} from {ConsecutiveDaysGoodCare} day streak";
-
         public int XPToNextLevel => Math.Max(0, GetXPForNextLevel() - XP);
 
-        // Add percentage calculation for progress bars
         public double XPPercentage
         {
             get
             {
-                int maxXP = GetXPForNextLevel();
-                if (maxXP <= 0) return 100;
-                return Math.Min(100, (double)XP / maxXP * 100);
+                try
+                {
+                    int maxXP = GetXPForNextLevel();
+                    if (maxXP <= 0) return 100;
+                    return Math.Min(100, (double)XP / maxXP * 100);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error calculating XP percentage: {ex.Message}");
+                    return 0;
+                }
             }
         }
 
-        // Track last XP gain for UI animations
         public int LastXPGain => _lastXpGain;
 
-        // Action availability properties - FIXED: Thread-safe implementation
+        // Cached action availability properties for performance
         public bool CanWater
         {
             get
@@ -449,7 +649,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canWater != result)
                     {
                         _canWater = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canWater;
                 }
@@ -466,7 +666,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canPrune != result)
                     {
                         _canPrune = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canPrune;
                 }
@@ -483,7 +683,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canRest != result)
                     {
                         _canRest = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canRest;
                 }
@@ -500,7 +700,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canFertilize != result)
                     {
                         _canFertilize = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canFertilize;
                 }
@@ -517,7 +717,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canCleanArea != result)
                     {
                         _canCleanArea = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canCleanArea;
                 }
@@ -534,7 +734,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canExercise != result)
                     {
                         _canExercise = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canExercise;
                 }
@@ -551,7 +751,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canTrain != result)
                     {
                         _canTrain = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canTrain;
                 }
@@ -568,7 +768,7 @@ namespace BonsaiGotchiGame.Models
                     if (_canPlay != result)
                     {
                         _canPlay = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canPlay;
                 }
@@ -585,48 +785,227 @@ namespace BonsaiGotchiGame.Models
                     if (_canMeditate != result)
                     {
                         _canMeditate = result;
-                        OnPropertyChanged();
+                        QueuePropertyChanged();
                     }
                     return _canMeditate;
                 }
             }
         }
 
+        public Bonsai(string name = "Bonsai")
+        {
+            try
+            {
+                // Initialize property change timer for batching
+                _propertyChangeTimer = new Timer(FlushPropertyChanges, null, Timeout.Infinite, Timeout.Infinite);
+
+                Name = name ?? "Bonsai";
+                Water = 50;
+                Health = 100;
+                Growth = 10;
+                Energy = 100;
+                Age = 0;
+                CurrentState = BonsaiState.Idle;
+                LastUpdateTime = DateTime.Now;
+
+                // Initialize game time
+                GameHour = 6;
+                GameMinute = 0;
+                GameDay = 1;
+                GameMonth = 1;
+                GameYear = 1;
+
+                // Initialize XP system
+                XP = 0;
+                Level = 1;
+                Mood = 70;
+                Hunger = 30;
+                Cleanliness = 100;
+                GrowthStage = GrowthStage.Seedling;
+                MoodState = MoodState.Content;
+                HealthCondition = HealthCondition.Healthy;
+                ConsecutiveDaysGoodCare = 0;
+
+                // Initialize collections
+                _actionCooldowns = new Dictionary<string, DateTime>();
+                _activeEffects = new Dictionary<string, bool>();
+                _previousCooldownActions = new HashSet<string>();
+
+                // Initialize systems
+                _inventory = new Inventory();
+                _currency = new Currency();
+
+                // Add starter items
+                _inventory.AddItem(BURGER_ID, 3);
+                _inventory.AddItem(ICE_CREAM_ID, 2);
+                _inventory.AddItem(VEGETABLES_ID, 5);
+                _inventory.AddItem(PREMIUM_NUTRIENTS_ID, 1);
+                _inventory.AddItem(SPECIAL_TREAT_ID, 0);
+
+                // Initial updates
+                UpdateMoodState();
+                UpdateGrowthStage();
+                RefreshAllActionAvailability();
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Bonsai constructor: {ex.Message}");
+                InitializeSafeDefaults();
+            }
+        }
+
+        private void InitializeSafeDefaults()
+        {
+            _name = "Bonsai";
+            _water = 50;
+            _health = 100;
+            _energy = 100;
+            _level = 1;
+            _currency = new Currency();
+            _inventory = new Inventory();
+        }
+
+        // Optimized property change notification system
+        private void QueuePropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            if (string.IsNullOrEmpty(propertyName)) return;
+
+            lock (_pendingPropertyChanges)
+            {
+                _pendingPropertyChanges.Add(propertyName);
+
+                // Start or restart the timer
+                if (!_isUpdatingProperties && _propertyChangeTimer != null)
+                {
+                    _propertyChangeTimer.Change(PropertyChangeDelayMs, Timeout.Infinite);
+                }
+            }
+        }
+
+        private void FlushPropertyChanges(object? state)
+        {
+            HashSet<string> propertiesToNotify;
+
+            lock (_pendingPropertyChanges)
+            {
+                if (_pendingPropertyChanges.Count == 0 || _isUpdatingProperties)
+                    return;
+
+                _isUpdatingProperties = true;
+                propertiesToNotify = new HashSet<string>(_pendingPropertyChanges);
+                _pendingPropertyChanges.Clear();
+            }
+
+            try
+            {
+                // Fire all pending property change notifications
+                foreach (string propertyName in propertiesToNotify)
+                {
+                    OnPropertyChanged(propertyName);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error flushing property changes: {ex.Message}");
+            }
+            finally
+            {
+                lock (_pendingPropertyChanges)
+                {
+                    _isUpdatingProperties = false;
+                }
+            }
+        }
+
+        // Validation methods
+        private void ValidateNameInput(string? name)
+        {
+            if (string.IsNullOrWhiteSpace(name))
+                throw new ArgumentException("Bonsai name cannot be empty or whitespace only.");
+
+            if (name.Length > 50)
+                throw new ArgumentException("Bonsai name cannot exceed 50 characters.");
+        }
+
+        private void ValidateStatChange(int oldValue, int newValue, string statName)
+        {
+            int change = Math.Abs(newValue - oldValue);
+            if (change > 50 && oldValue > 0)
+            {
+                System.Diagnostics.Debug.WriteLine($"Warning: Large {statName} change detected: {oldValue} -> {newValue}");
+            }
+        }
+
+        private void ValidateOverallState()
+        {
+            if (Health <= 0 && Water > 90)
+            {
+                System.Diagnostics.Debug.WriteLine("Warning: Inconsistent state - zero health with high water");
+            }
+
+            if (Energy <= 0 && Mood > 80)
+            {
+                System.Diagnostics.Debug.WriteLine("Warning: Inconsistent state - zero energy with high mood");
+            }
+        }
+
         // Public methods to help with cooldown visualization
         public TimeSpan GetRemainingCooldown(string action)
         {
+            if (string.IsNullOrWhiteSpace(action))
+                return TimeSpan.Zero;
+
             lock (_updateLock)
             {
-                // Convert action name to actual cooldown key if needed
-                string cooldownKey = ConvertActionNameToCooldownKey(action);
+                try
+                {
+                    string cooldownKey = ConvertActionNameToCooldownKey(action);
 
-                if (!_actionCooldowns.TryGetValue(cooldownKey, out DateTime lastUsed))
+                    if (!_actionCooldowns.TryGetValue(cooldownKey, out DateTime lastUsed))
+                        return TimeSpan.Zero;
+
+                    if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
+                        return TimeSpan.Zero;
+
+                    DateTime cooldownEnd = lastUsed.AddMinutes(cooldownMinutes);
+                    TimeSpan remaining = cooldownEnd - DateTime.Now;
+
+                    return remaining.TotalSeconds > 0 ? remaining : TimeSpan.Zero;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error getting remaining cooldown: {ex.Message}");
                     return TimeSpan.Zero;
-
-                if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
-                    return TimeSpan.Zero;
-
-                DateTime cooldownEnd = lastUsed.AddMinutes(cooldownMinutes);
-                TimeSpan remaining = cooldownEnd - DateTime.Now;
-
-                return remaining.TotalSeconds > 0 ? remaining : TimeSpan.Zero;
+                }
             }
         }
 
         public TimeSpan GetTotalCooldownTime(string action)
         {
-            // Convert action name to actual cooldown key if needed
-            string cooldownKey = ConvertActionNameToCooldownKey(action);
-
-            if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
+            if (string.IsNullOrWhiteSpace(action))
                 return TimeSpan.Zero;
 
-            return TimeSpan.FromMinutes(cooldownMinutes);
+            try
+            {
+                string cooldownKey = ConvertActionNameToCooldownKey(action);
+
+                if (!_actionCooldownTimes.TryGetValue(cooldownKey, out int cooldownMinutes))
+                    return TimeSpan.Zero;
+
+                return TimeSpan.FromMinutes(cooldownMinutes);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting total cooldown time: {ex.Message}");
+                return TimeSpan.Zero;
+            }
         }
 
         private string ConvertActionNameToCooldownKey(string action)
         {
-            // Map UI action names to internal cooldown keys
+            if (string.IsNullOrWhiteSpace(action))
+                return string.Empty;
+
             return action switch
             {
                 "Exercise" => "LightExercise",
@@ -636,336 +1015,388 @@ namespace BonsaiGotchiGame.Models
             };
         }
 
-        public Bonsai(string name = "Bonsai")
-        {
-            Name = name;
-            Water = 50;
-            Health = 100;
-            Growth = 10;
-            Energy = 100;
-            Age = 0;
-            CurrentState = BonsaiState.Idle;
-            LastUpdateTime = DateTime.Now;
-
-            // Initialize game time (start at 6:00 AM on day 1)
-            GameHour = 6;
-            GameMinute = 0;
-            GameDay = 1;
-            GameMonth = 1;
-            GameYear = 1;
-
-            // Initialize new XP system properties
-            XP = 0;
-            Level = 1;
-            Mood = 70; // Start content
-            Hunger = 30; // Somewhat hungry
-            Cleanliness = 100; // Clean
-            GrowthStage = GrowthStage.Seedling;
-            MoodState = MoodState.Content;
-            HealthCondition = HealthCondition.Healthy;
-            ConsecutiveDaysGoodCare = 0;
-
-            // Initialize cooldown tracking
-            _actionCooldowns = new Dictionary<string, DateTime>();
-            _activeEffects = new Dictionary<string, bool>();
-            _previousCooldownActions = new HashSet<string>();
-
-            // Initialize inventory and currency
-            _inventory = new Inventory();
-            _currency = new Currency();
-
-            // Add some starter items
-            _inventory.AddItem(BURGER_ID, 3);
-            _inventory.AddItem(ICE_CREAM_ID, 2);
-            _inventory.AddItem(VEGETABLES_ID, 5);
-            _inventory.AddItem(PREMIUM_NUTRIENTS_ID, 1);
-            _inventory.AddItem(SPECIAL_TREAT_ID, 0);
-
-            // Initial update
-            UpdateMoodState();
-            UpdateGrowthStage();
-
-            // Initialize all action availability properties
-            RefreshAllActionAvailability();
-        }
-
+        // Action methods with improved error handling
         public void GiveWater()
         {
             if (!CanWater) return;
 
-            Water += 30;
-            Energy += 10;
-            CurrentState = BonsaiState.Growing;
+            try
+            {
+                lock (_updateLock)
+                {
+                    Water += 30;
+                    Energy += 10;
+                    CurrentState = BonsaiState.Growing;
 
-            // XP system updates with thread safety
-            AddExperience(5);
-            Mood += 5;
-            Hunger += 2; // Slightly increases hunger
+                    AddExperience(5);
+                    Mood += 5;
+                    Hunger += 2;
 
-            // Set cooldown
-            SetActionCooldown("Water");
+                    SetActionCooldown("Water");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in GiveWater: {ex.Message}");
+            }
         }
 
         public void Prune()
         {
             if (!CanPrune) return;
 
-            Growth += 15;
-            Energy -= 10;
-            Health += 5;
-            CurrentState = BonsaiState.Blooming;
+            try
+            {
+                lock (_updateLock)
+                {
+                    Growth += 15;
+                    Energy -= 10;
+                    Health += 5;
+                    CurrentState = BonsaiState.Blooming;
 
-            // XP system updates with thread safety
-            AddExperience(10);
-            Mood -= 5; // Initially makes bonsai unhappy
-            Hunger += 5;
+                    AddExperience(10);
+                    Mood -= 5;
+                    Hunger += 5;
 
-            // Set active effect to increase mood later
-            _activeEffects["PruningMoodBoost"] = true;
-
-            // Set cooldown
-            SetActionCooldown("Prune");
+                    _activeEffects["PruningMoodBoost"] = true;
+                    SetActionCooldown("Prune");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Prune: {ex.Message}");
+            }
         }
 
         public void Rest()
         {
             if (!CanRest) return;
 
-            Energy += 40;
-            CurrentState = BonsaiState.Sleeping;
+            try
+            {
+                lock (_updateLock)
+                {
+                    Energy += 40;
+                    CurrentState = BonsaiState.Sleeping;
 
-            // XP system updates with thread safety
-            AddExperience(5);
-            Mood += 15;
-            Hunger -= 5;
+                    AddExperience(5);
+                    Mood += 15;
+                    Hunger -= 5;
 
-            // Set cooldown
-            SetActionCooldown("Rest");
+                    SetActionCooldown("Rest");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Rest: {ex.Message}");
+            }
         }
 
         public void ApplyFertilizer()
         {
             if (!CanFertilize) return;
 
-            Health += 30;
-            Growth += 10;
-            CurrentState = BonsaiState.Growing;
+            try
+            {
+                lock (_updateLock)
+                {
+                    Health += 30;
+                    Growth += 10;
+                    CurrentState = BonsaiState.Growing;
 
-            // XP system updates with thread safety
-            AddExperience(15);
-            Mood += 2;
-            Hunger -= 10;
+                    AddExperience(15);
+                    Mood += 2;
+                    Hunger -= 10;
 
-            // Set cooldown
-            SetActionCooldown("Fertilize");
+                    SetActionCooldown("Fertilize");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in ApplyFertilizer: {ex.Message}");
+            }
         }
 
-        // New activity methods for XP system
         public void CleanArea()
         {
             if (!CanCleanArea) return;
 
-            // XP system updates with thread safety
-            AddExperience(8);
-            Mood += 8;
-            Health += 3;
-            Energy -= 5;
-            Cleanliness += 40;
+            try
+            {
+                lock (_updateLock)
+                {
+                    AddExperience(8);
+                    Mood += 8;
+                    Health += 3;
+                    Energy -= 5;
+                    Cleanliness += 40;
 
-            // Set cooldown
-            SetActionCooldown("CleanArea");
+                    SetActionCooldown("CleanArea");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in CleanArea: {ex.Message}");
+            }
         }
 
         public void LightExercise()
         {
             if (!CanExercise) return;
 
-            // XP system updates with thread safety
-            AddExperience(10);
-            Mood += 5;
-            Health += 10;
-            Energy -= 20;
-            Hunger += 15;
+            try
+            {
+                lock (_updateLock)
+                {
+                    AddExperience(10);
+                    Mood += 5;
+                    Health += 10;
+                    Energy -= 20;
+                    Hunger += 15;
 
-            // Set cooldown
-            SetActionCooldown("LightExercise");
+                    SetActionCooldown("LightExercise");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in LightExercise: {ex.Message}");
+            }
         }
 
         public void IntenseTraining()
         {
             if (!CanTrain) return;
 
-            // XP system updates with thread safety
-            AddExperience(25);
-            Mood -= 5; // Initially feels tiring
-            Health += 20;
-            Energy -= 40;
-            Hunger += 30;
-
-            // Set active effect for later mood boost
-            _activeEffects["TrainingMoodBoost"] = true;
-
-            // Risk of injury if energy was low
-            if (Energy < 30)
+            try
             {
-                // 30% chance of overtraining when low on energy
-                if (_random.Next(100) < 30)
+                lock (_updateLock)
                 {
-                    HealthCondition = HealthCondition.Overtraining;
+                    AddExperience(25);
+                    Mood -= 5;
+                    Health += 20;
+                    Energy -= 40;
+                    Hunger += 30;
+
+                    _activeEffects["TrainingMoodBoost"] = true;
+
+                    if (Energy < 30 && _random.Next(100) < 30)
+                    {
+                        HealthCondition = HealthCondition.Overtraining;
+                    }
+
+                    SetActionCooldown("IntenseTraining");
                 }
             }
-
-            // Set cooldown
-            SetActionCooldown("IntenseTraining");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in IntenseTraining: {ex.Message}");
+            }
         }
 
         public void Play()
         {
             if (!CanPlay) return;
 
-            // XP system updates with thread safety
-            AddExperience(15);
-            Mood += 20;
-            Health += 5;
-            Energy -= 25;
-            Hunger += 20;
+            try
+            {
+                lock (_updateLock)
+                {
+                    AddExperience(15);
+                    Mood += 20;
+                    Health += 5;
+                    Energy -= 25;
+                    Hunger += 20;
 
-            // Set cooldown
-            SetActionCooldown("Play");
+                    SetActionCooldown("Play");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Play: {ex.Message}");
+            }
         }
 
         public void Meditate()
         {
             if (!CanMeditate) return;
 
-            // XP system updates with thread safety
-            AddExperience(8);
-            Mood += 25;
-            Health += 8;
-            Energy += 20;
+            try
+            {
+                lock (_updateLock)
+                {
+                    AddExperience(8);
+                    Mood += 25;
+                    Health += 8;
+                    Energy += 20;
 
-            // Set cooldown
-            SetActionCooldown("Meditation");
+                    SetActionCooldown("Meditation");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in Meditate: {ex.Message}");
+            }
         }
 
-        // Updated feeding methods that use the inventory
+        // Feeding methods
         public void FeedBasicFertilizer()
         {
-            // Basic fertilizer is free and doesn't use inventory
-            AddExperience(5);
-            Health += 5;
-            Hunger -= 20;
-            Energy += 5;
+            try
+            {
+                AddExperience(5);
+                Health += 5;
+                Hunger -= 20;
+                Energy += 5;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedBasicFertilizer: {ex.Message}");
+            }
         }
 
         public bool FeedBurger()
         {
-            if (Inventory.UseItem(BURGER_ID))
+            try
             {
-                AddExperience(3);
-                Mood += 3;
-                Health -= 5;
-                Hunger -= 30;
-                Energy += 15;
-
-                // Small chance of illness
-                if (_random.Next(100) < 5)
+                if (Inventory.UseItem(BURGER_ID))
                 {
-                    HealthCondition = HealthCondition.NutrientDeficiency;
-                }
+                    AddExperience(3);
+                    Mood += 3;
+                    Health -= 5;
+                    Hunger -= 30;
+                    Energy += 15;
 
-                return true;
+                    if (_random.Next(100) < 5)
+                    {
+                        HealthCondition = HealthCondition.NutrientDeficiency;
+                    }
+
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedBurger: {ex.Message}");
+                return false;
+            }
         }
 
         public bool FeedIceCream()
         {
-            if (Inventory.UseItem(ICE_CREAM_ID))
+            try
             {
-                AddExperience(4);
-                Mood += 15;
-                Health -= 10;
-                Hunger -= 15;
-                Energy += 20;
-
-                // Higher chance of illness
-                if (_random.Next(100) < 15)
+                if (Inventory.UseItem(ICE_CREAM_ID))
                 {
-                    HealthCondition = HealthCondition.NutrientDeficiency;
-                }
+                    AddExperience(4);
+                    Mood += 15;
+                    Health -= 10;
+                    Hunger -= 15;
+                    Energy += 20;
 
-                return true;
+                    if (_random.Next(100) < 15)
+                    {
+                        HealthCondition = HealthCondition.NutrientDeficiency;
+                    }
+
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedIceCream: {ex.Message}");
+                return false;
+            }
         }
 
         public bool FeedVegetables()
         {
-            if (Inventory.UseItem(VEGETABLES_ID))
+            try
             {
-                AddExperience(8);
-                Mood -= 10; // Initially unhappy
-                Health += 15;
-                Hunger -= 25;
-                Energy += 10;
-
-                // Set active effect for later mood boost
-                _activeEffects["VegetablesMoodBoost"] = true;
-
-                // Reduce illness chance
-                if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 10)
+                if (Inventory.UseItem(VEGETABLES_ID))
                 {
-                    HealthCondition = HealthCondition.Healthy;
-                }
+                    AddExperience(8);
+                    Mood -= 10;
+                    Health += 15;
+                    Hunger -= 25;
+                    Energy += 10;
 
-                return true;
+                    _activeEffects["VegetablesMoodBoost"] = true;
+
+                    if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 10)
+                    {
+                        HealthCondition = HealthCondition.Healthy;
+                    }
+
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedVegetables: {ex.Message}");
+                return false;
+            }
         }
 
         public bool FeedPremiumNutrients()
         {
-            if (Inventory.UseItem(PREMIUM_NUTRIENTS_ID))
+            try
             {
-                AddExperience(15);
-                Mood += 10;
-                Health += 20;
-                Hunger -= 40;
-                Energy += 15;
-
-                // Reduce illness chance
-                if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 5)
+                if (Inventory.UseItem(PREMIUM_NUTRIENTS_ID))
                 {
-                    HealthCondition = HealthCondition.Healthy;
-                }
+                    AddExperience(15);
+                    Mood += 10;
+                    Health += 20;
+                    Hunger -= 40;
+                    Energy += 15;
 
-                return true;
+                    if (HealthCondition != HealthCondition.Healthy && _random.Next(100) < 5)
+                    {
+                        HealthCondition = HealthCondition.Healthy;
+                    }
+
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedPremiumNutrients: {ex.Message}");
+                return false;
+            }
         }
 
         public bool FeedSpecialTreat()
         {
-            if (Inventory.UseItem(SPECIAL_TREAT_ID))
+            try
             {
-                AddExperience(20);
-                Mood += 25;
-                Health -= 5;
-                Hunger -= 10;
-                Energy += 30;
-
-                // Chance of illness
-                if (_random.Next(100) < 10)
+                if (Inventory.UseItem(SPECIAL_TREAT_ID))
                 {
-                    HealthCondition = HealthCondition.NutrientDeficiency;
-                }
+                    AddExperience(20);
+                    Mood += 25;
+                    Health -= 5;
+                    Hunger -= 10;
+                    Energy += 30;
 
-                return true;
+                    if (_random.Next(100) < 10)
+                    {
+                        HealthCondition = HealthCondition.NutrientDeficiency;
+                    }
+
+                    return true;
+                }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in FeedSpecialTreat: {ex.Message}");
+                return false;
+            }
         }
 
+        // Core update method with performance optimizations
         public void UpdateState()
         {
             lock (_updateLock)
@@ -974,407 +1405,505 @@ namespace BonsaiGotchiGame.Models
                 {
                     var timeSinceLastUpdate = DateTime.Now - LastUpdateTime;
 
-                    // Prevent negative time updates that could cause issues
                     if (timeSinceLastUpdate.TotalSeconds < 0)
                     {
                         LastUpdateTime = DateTime.Now;
                         return;
                     }
 
-                    // Get the time progression speed multiplier from settings
-                    int timeSpeedMultiplier = GameSettings.Instance?.TimeProgressionSpeed ?? 1;
+                    int timeSpeedMultiplier = 1;
+                    try
+                    {
+                        timeSpeedMultiplier = GameSettings.Instance?.TimeProgressionSpeed ?? 1;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error getting time speed multiplier: {ex.Message}");
+                    }
 
-                    // Determine minutes passed and update stats accordingly
-                    // Multiply by the speed setting to adjust time progression rate
                     var minutesPassed = timeSinceLastUpdate.TotalMinutes * timeSpeedMultiplier;
+                    minutesPassed = Math.Min(minutesPassed, 1440); // Max 24 hours
 
-                    // Cap the time progression to prevent extreme jumps
-                    minutesPassed = Math.Min(minutesPassed, 1440); // Max 24 hours of game time
+                    // Batch all stat updates to reduce property change notifications
+                    bool hasChanges = false;
 
-                    // Update in-game time (each real minute * speed = game minutes)
-                    int gameMinutesToAdd = Math.Max(0, (int)(minutesPassed * 60)); // Convert to game minutes
-                    if (gameMinutesToAdd > 0)
-                    {
-                        // Update game minutes and handle rollover
-                        int newMinutes = GameMinute + gameMinutesToAdd;
-                        GameMinute = newMinutes % 60;
+                    // Update game time
+                    hasChanges |= UpdateGameTime(minutesPassed);
 
-                        // Hours from minutes rollover
-                        int hoursToAdd = newMinutes / 60;
-                        if (hoursToAdd > 0)
-                        {
-                            int newHours = GameHour + hoursToAdd;
-                            GameHour = newHours % 24;
+                    // Update stats with overflow protection
+                    hasChanges |= UpdateStats(minutesPassed);
 
-                            // Days from hours rollover
-                            int daysToAdd = newHours / 24;
-                            if (daysToAdd > 0)
-                            {
-                                GameDay += daysToAdd;
-
-                                // Daily evaluation of care
-                                EvaluateDailyCare();
-                            }
-                        }
-                    }
-
-                    // Basic stat decay over time with bounds checking
-                    Water = Math.Max(0, Water - (int)(minutesPassed * 0.08)); // -4.8 per hour
-                    Energy = Math.Max(0, Energy - (int)(minutesPassed * 0.03)); // -1.8 per hour
-                    Mood = Math.Max(0, Mood - (int)(minutesPassed * 0.017)); // -1 per hour
-                    Hunger = Math.Min(100, Hunger + (int)(minutesPassed * 0.05)); // +3 per hour
-                    Cleanliness = Math.Max(0, Cleanliness - (int)(minutesPassed * 0.002)); // -3 per day
-
-                    // Passive growth when conditions are good
-                    if (Water > 40 && Health > 60 && Energy > 30 && Hunger < 70)
-                    {
-                        Growth += (int)(minutesPassed * 0.01); // +0.6 per hour when healthy
-                    }
-
-                    // Health decreases if water is too low or hunger too high
-                    if (Water < 20)
-                    {
-                        Health -= (int)(minutesPassed * 0.033); // -2 per hour
-
-                        // Risk of health condition
-                        if (Health < 30 && HealthCondition == HealthCondition.Healthy && _random.Next(100) < 10)
-                        {
-                            HealthCondition = HealthCondition.NutrientDeficiency;
-                        }
-                    }
-
-                    if (Hunger > 80)
-                    {
-                        Health -= (int)(minutesPassed * 0.017); // -1 per hour
-                        Mood -= (int)(minutesPassed * 0.033); // -2 per hour
-                    }
-
-                    // Low cleanliness affects health and mood
-                    if (Cleanliness < 30)
-                    {
-                        Health -= (int)(minutesPassed * 0.008); // -0.5 per hour
-                        Mood -= (int)(minutesPassed * 0.017); // -1 per hour
-
-                        // Risk of health condition
-                        if (HealthCondition == HealthCondition.Healthy && _random.Next(100) < 5)
-                        {
-                            HealthCondition = _random.Next(2) == 0 ?
-                                HealthCondition.LeafSpot : HealthCondition.PestInfestation;
-                        }
-                    }
-
-                    // Update health condition effects
+                    // Update health conditions
                     UpdateHealthConditionEffects(minutesPassed);
 
-                    // Process active effects like delayed mood changes
+                    // Process active effects
                     ProcessActiveEffects();
 
-                    // Important - check for expired cooldowns
+                    // Check cooldowns
                     CheckForExpiredCooldowns();
 
-                    // Update age (1 day per real hour, affected by time speed)
-                    Age += Math.Max(0, (int)(timeSinceLastUpdate.TotalHours * timeSpeedMultiplier));
+                    // Update age
+                    Age += Math.Max(0, (int)Math.Min(timeSinceLastUpdate.TotalHours * timeSpeedMultiplier, 365));
 
                     // Update state based on stats
-                    if (Health < 30)
-                        CurrentState = BonsaiState.Unhealthy;
-                    else if (Energy < 20)
-                        CurrentState = BonsaiState.Wilting;
-                    else if (Water < 30)
-                        CurrentState = BonsaiState.Thirsty;
-                    else if (CurrentState != BonsaiState.Blooming && CurrentState != BonsaiState.Growing && CurrentState != BonsaiState.Sleeping)
-                        CurrentState = BonsaiState.Idle;
+                    UpdateCurrentStateBasedOnStats();
 
                     // Update mood state
                     UpdateMoodState();
 
-                    // Add small passive XP gain for good care over time
-                    if (Health > 70 && Water > 70 && Energy > 70 && Cleanliness > 70 && Hunger < 30)
-                    {
-                        // Small XP for maintaining good conditions - calculated based on elapsed time
-                        double minutesPassedSinceLastUpdate = (DateTime.Now - LastUpdateTime).TotalMinutes;
-                        if (minutesPassedSinceLastUpdate >= 1.0) // Only add passive XP after a minute
-                        {
-                            int passiveXP = (int)Math.Floor(minutesPassedSinceLastUpdate * 0.1); // 0.1 XP per minute
-                            if (passiveXP > 0)
-                                AddExperience(passiveXP);
-                        }
-                    }
+                    // Passive XP gain
+                    AddPassiveExperience(timeSinceLastUpdate);
 
                     LastUpdateTime = DateTime.Now;
 
-                    // Force refresh all action availability properties
-                    RefreshAllActionAvailability();
+                    // Force refresh all action availability if there were changes
+                    if (hasChanges)
+                    {
+                        RefreshAllActionAvailability();
+                    }
                 }
                 catch (Exception ex)
                 {
-                    // Log error but don't crash the application
                     System.Diagnostics.Debug.WriteLine($"Error in UpdateState: {ex.Message}");
-                    // Reset last update time to prevent continuous errors
                     LastUpdateTime = DateTime.Now;
                 }
             }
         }
 
-        // New method to refresh all action availability properties
-        private void RefreshAllActionAvailability()
+        private bool UpdateGameTime(double minutesPassed)
         {
-            // These calls will trigger OnPropertyChanged if the values have changed
-            // Using local variables to avoid compiler warnings
-            var temp = CanWater;
-            temp = CanPrune;
-            temp = CanRest;
-            temp = CanFertilize;
-            temp = CanCleanArea;
-            temp = CanExercise;
-            temp = CanTrain;
-            temp = CanPlay;
-            temp = CanMeditate;
+            bool hasChanges = false;
+            int gameMinutesToAdd = Math.Max(0, (int)(minutesPassed * 60));
+
+            if (gameMinutesToAdd > 0)
+            {
+                try
+                {
+                    int newMinutes = GameMinute + gameMinutesToAdd;
+                    GameMinute = newMinutes % 60;
+
+                    int hoursToAdd = newMinutes / 60;
+                    if (hoursToAdd > 0)
+                    {
+                        int newHours = GameHour + hoursToAdd;
+                        GameHour = newHours % 24;
+
+                        int daysToAdd = newHours / 24;
+                        if (daysToAdd > 0)
+                        {
+                            GameDay += daysToAdd;
+                            EvaluateDailyCare();
+                            hasChanges = true;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error updating game time: {ex.Message}");
+                }
+            }
+
+            return hasChanges;
         }
 
-        // Enhanced XP System helper methods with thread safety
+        private bool UpdateStats(double minutesPassed)
+        {
+            bool hasChanges = false;
+
+            try
+            {
+                int oldWater = Water;
+                int oldEnergy = Energy;
+                int oldMood = Mood;
+                int oldHunger = Hunger;
+                int oldCleanliness = Cleanliness;
+                int oldGrowth = Growth;
+                int oldHealth = Health;
+
+                // Stat decay with bounds checking
+                Water = Math.Max(0, Water - (int)Math.Min(minutesPassed * 0.08, 100));
+                Energy = Math.Max(0, Energy - (int)Math.Min(minutesPassed * 0.03, 100));
+                Mood = Math.Max(0, Mood - (int)Math.Min(minutesPassed * 0.017, 100));
+                Hunger = Math.Min(100, Hunger + (int)Math.Min(minutesPassed * 0.05, 100));
+                Cleanliness = Math.Max(0, Cleanliness - (int)Math.Min(minutesPassed * 0.002, 100));
+
+                // Passive growth when conditions are good
+                if (Water > 40 && Health > 60 && Energy > 30 && Hunger < 70)
+                {
+                    Growth += (int)Math.Min(minutesPassed * 0.01, 10);
+                }
+
+                // Health effects
+                if (Water < 20)
+                {
+                    Health -= (int)Math.Min(minutesPassed * 0.033, 50);
+                    if (Health < 30 && HealthCondition == HealthCondition.Healthy && _random.Next(100) < 10)
+                    {
+                        HealthCondition = HealthCondition.NutrientDeficiency;
+                    }
+                }
+
+                if (Hunger > 80)
+                {
+                    Health -= (int)Math.Min(minutesPassed * 0.017, 50);
+                    Mood -= (int)Math.Min(minutesPassed * 0.033, 50);
+                }
+
+                if (Cleanliness < 30)
+                {
+                    Health -= (int)Math.Min(minutesPassed * 0.008, 50);
+                    Mood -= (int)Math.Min(minutesPassed * 0.017, 50);
+
+                    if (HealthCondition == HealthCondition.Healthy && _random.Next(100) < 5)
+                    {
+                        HealthCondition = _random.Next(2) == 0 ?
+                            HealthCondition.LeafSpot : HealthCondition.PestInfestation;
+                    }
+                }
+
+                // Check if any stats changed
+                hasChanges = oldWater != Water || oldEnergy != Energy || oldMood != Mood ||
+                           oldHunger != Hunger || oldCleanliness != Cleanliness ||
+                           oldGrowth != Growth || oldHealth != Health;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating stats: {ex.Message}");
+            }
+
+            return hasChanges;
+        }
+
+        private void UpdateCurrentStateBasedOnStats()
+        {
+            if (Health < 30)
+                CurrentState = BonsaiState.Unhealthy;
+            else if (Energy < 20)
+                CurrentState = BonsaiState.Wilting;
+            else if (Water < 30)
+                CurrentState = BonsaiState.Thirsty;
+            else if (CurrentState != BonsaiState.Blooming && CurrentState != BonsaiState.Growing && CurrentState != BonsaiState.Sleeping)
+                CurrentState = BonsaiState.Idle;
+        }
+
+        private void AddPassiveExperience(TimeSpan timeSinceLastUpdate)
+        {
+            if (Health > 70 && Water > 70 && Energy > 70 && Cleanliness > 70 && Hunger < 30)
+            {
+                try
+                {
+                    double minutesPassedSinceLastUpdate = timeSinceLastUpdate.TotalMinutes;
+                    if (minutesPassedSinceLastUpdate >= 1.0)
+                    {
+                        int passiveXP = (int)Math.Floor(Math.Min(minutesPassedSinceLastUpdate * 0.1, 100));
+                        if (passiveXP > 0)
+                            AddExperience(passiveXP);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error in passive XP calculation: {ex.Message}");
+                }
+            }
+        }
+
+        private void RefreshAllActionAvailability()
+        {
+            try
+            {
+                // Access all properties to trigger cache updates
+                var temp = CanWater;
+                temp = CanPrune;
+                temp = CanRest;
+                temp = CanFertilize;
+                temp = CanCleanArea;
+                temp = CanExercise;
+                temp = CanTrain;
+                temp = CanPlay;
+                temp = CanMeditate;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error refreshing action availability: {ex.Message}");
+            }
+        }
+
+        // XP System helper methods
         private void AddExperience(int baseXP)
         {
             if (baseXP <= 0) return;
 
-            lock (_xpLock) // Thread safety for XP operations
+            lock (_xpLock)
             {
                 try
                 {
-                    // Apply mood multiplier
                     double moodMultiplier = GetMoodMultiplier();
-
-                    // Apply streak bonus (5% per day of consecutive good care, up to 50%)
                     double streakBonus = GetStreakBonus();
 
-                    // Calculate final XP gain with overflow protection
                     int finalXP;
                     checked
                     {
-                        finalXP = Math.Max(1, (int)(baseXP * moodMultiplier * (1.0 + streakBonus)));
-
-                        // Store last XP gain for UI animations
+                        finalXP = Math.Max(1, (int)Math.Min(baseXP * moodMultiplier * (1.0 + streakBonus), 10000));
                         _lastXpGain = finalXP;
-
-                        // Add XP
                         XP += finalXP;
                     }
-
-                    // XP property setter will handle notifications and level-up checks
                 }
                 catch (OverflowException)
                 {
-                    // Handle overflow more gracefully
                     _lastXpGain = 0;
-                    XP = int.MaxValue - 100; // Just below max to allow for future small gains
+                    XP = int.MaxValue - 100;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error in AddExperience: {ex.Message}");
                 }
             }
         }
 
         private void CheckForLevelUp()
         {
-            int nextLevel = Level + 1;
-            int requiredXP = GetXPForNextLevel();
-
-            if (XP >= requiredXP)
+            try
             {
-                Level = nextLevel;
+                int nextLevel = Level + 1;
+                int requiredXP = GetXPForNextLevel();
 
-                // Update growth stage based on new level
-                UpdateGrowthStage();
+                if (XP >= requiredXP)
+                {
+                    Level = nextLevel;
+                    UpdateGrowthStage();
+                    Mood += 20;
 
-                // Mood boost on level up
-                Mood += 20;
+                    try
+                    {
+                        Currency.AddBills(5);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error adding level up currency: {ex.Message}");
+                    }
+                }
 
-                // Add 5 Bonsai Bills when leveling up
-                Currency.AddBills(5);
-
-                // Any level-up rewards would be triggered here
+                QueuePropertyChanged(nameof(LevelDisplay));
+                QueuePropertyChanged(nameof(XPToNextLevel));
             }
-
-            OnPropertyChanged(nameof(LevelDisplay));
-            OnPropertyChanged(nameof(XPToNextLevel));
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in CheckForLevelUp: {ex.Message}");
+            }
         }
 
         private int GetXPForNextLevel()
         {
             try
             {
-                // XP formula: 100 * level^1.5 with bounds checking
                 checked
                 {
-                    return Math.Max(100, (int)(100 * Math.Pow(Level, 1.5)));
+                    return Math.Max(100, (int)Math.Min(100 * Math.Pow(Level, 1.5), int.MaxValue / 2));
                 }
             }
             catch (OverflowException)
             {
-                return int.MaxValue; // Cap at maximum value
+                return int.MaxValue;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error calculating XP for next level: {ex.Message}");
+                return 100;
             }
         }
 
         private double GetMoodMultiplier()
         {
-            // Base multiplier from mood state
-            return MoodState switch
+            try
             {
-                MoodState.Ecstatic => 1.3,
-                MoodState.Happy => 1.2,
-                MoodState.Content => 1.1,
-                MoodState.Neutral => 1.0,
-                MoodState.Unhappy => 0.9,
-                MoodState.Sad => 0.8,
-                MoodState.Miserable => 0.7,
-                _ => 1.0
-            };
+                return MoodState switch
+                {
+                    MoodState.Ecstatic => 1.3,
+                    MoodState.Happy => 1.2,
+                    MoodState.Content => 1.1,
+                    MoodState.Neutral => 1.0,
+                    MoodState.Unhappy => 0.9,
+                    MoodState.Sad => 0.8,
+                    MoodState.Miserable => 0.7,
+                    _ => 1.0
+                };
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting mood multiplier: {ex.Message}");
+                return 1.0;
+            }
         }
 
         private double GetStreakBonus()
         {
-            // Streak bonus (5% per day, up to 50%)
-            return Math.Min(0.5, ConsecutiveDaysGoodCare * 0.05);
+            try
+            {
+                return Math.Min(0.5, ConsecutiveDaysGoodCare * 0.05);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error getting streak bonus: {ex.Message}");
+                return 0.0;
+            }
         }
 
         private void UpdateMoodState()
         {
-            MoodState = Mood switch
+            try
             {
-                >= 90 => MoodState.Ecstatic,
-                >= 75 => MoodState.Happy,
-                >= 60 => MoodState.Content,
-                >= 40 => MoodState.Neutral,
-                >= 25 => MoodState.Unhappy,
-                >= 10 => MoodState.Sad,
-                _ => MoodState.Miserable
-            };
+                MoodState = Mood switch
+                {
+                    >= 90 => MoodState.Ecstatic,
+                    >= 75 => MoodState.Happy,
+                    >= 60 => MoodState.Content,
+                    >= 40 => MoodState.Neutral,
+                    >= 25 => MoodState.Unhappy,
+                    >= 10 => MoodState.Sad,
+                    _ => MoodState.Miserable
+                };
 
-            OnPropertyChanged(nameof(MoodDisplay));
-            OnPropertyChanged(nameof(XPMultiplier));
+                QueuePropertyChanged(nameof(MoodDisplay));
+                QueuePropertyChanged(nameof(XPMultiplier));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error updating mood state: {ex.Message}");
+            }
         }
 
         private void UpdateGrowthStage()
         {
-            GrowthStage newStage = Level switch
+            try
             {
-                <= 5 => GrowthStage.Seedling,
-                <= 15 => GrowthStage.Sapling,
-                <= 30 => GrowthStage.YoungBonsai,
-                <= 50 => GrowthStage.MatureBonsai,
-                <= 75 => GrowthStage.ElderBonsai,
-                <= 100 => GrowthStage.AncientBonsai,
-                _ => GrowthStage.LegendaryBonsai
-            };
+                GrowthStage newStage = Level switch
+                {
+                    <= 5 => GrowthStage.Seedling,
+                    <= 15 => GrowthStage.Sapling,
+                    <= 30 => GrowthStage.YoungBonsai,
+                    <= 50 => GrowthStage.MatureBonsai,
+                    <= 75 => GrowthStage.ElderBonsai,
+                    <= 100 => GrowthStage.AncientBonsai,
+                    _ => GrowthStage.LegendaryBonsai
+                };
 
-            // Only update if stage changed
-            if (newStage != GrowthStage)
+                if (newStage != GrowthStage)
+                {
+                    GrowthStage = newStage;
+                }
+            }
+            catch (Exception ex)
             {
-                GrowthStage = newStage;
+                System.Diagnostics.Debug.WriteLine($"Error updating growth stage: {ex.Message}");
             }
         }
 
         private void EvaluateDailyCare()
         {
-            // Check if all vital stats were good
-            bool goodCareDay = Health > 70 && Water > 70 && Energy > 70 && Hunger < 30 && Cleanliness > 70;
-
-            if (goodCareDay)
+            try
             {
-                int previousStreak = ConsecutiveDaysGoodCare;
-                ConsecutiveDaysGoodCare++;
+                bool goodCareDay = Health > 70 && Water > 70 && Energy > 70 && Hunger < 30 && Cleanliness > 70;
 
-                // Add XP for good daily care
-                AddExperience(10); // Bonus XP for good daily care
-
-                // If streak milestone reached (e.g., 5, 10, 15 days), give extra bonus
-                if (ConsecutiveDaysGoodCare % 5 == 0)
+                if (goodCareDay)
                 {
-                    AddExperience(ConsecutiveDaysGoodCare * 2); // Extra bonus for milestone
+                    ConsecutiveDaysGoodCare++;
+                    AddExperience(10);
+
+                    if (ConsecutiveDaysGoodCare % 5 == 0)
+                    {
+                        AddExperience(ConsecutiveDaysGoodCare * 2);
+                    }
                 }
+                else
+                {
+                    if (ConsecutiveDaysGoodCare > 0)
+                    {
+                        ConsecutiveDaysGoodCare = 0;
+                    }
+                }
+
+                Growth += 1;
             }
-            else
+            catch (Exception ex)
             {
-                if (ConsecutiveDaysGoodCare > 0)
-                {
-                    ConsecutiveDaysGoodCare = 0;
-                }
+                System.Diagnostics.Debug.WriteLine($"Error in EvaluateDailyCare: {ex.Message}");
             }
-
-            // Ensure growth progresses at least a little each day
-            Growth += 1;
         }
 
         private void UpdateHealthConditionEffects(double minutesPassed)
         {
             if (minutesPassed <= 0) return;
 
-            switch (HealthCondition)
+            try
             {
-                case HealthCondition.RootRot:
-                    Health -= (int)(minutesPassed * 0.05); // -3 per hour
-                    Mood -= (int)(minutesPassed * 0.025); // -1.5 per hour
-                    break;
+                switch (HealthCondition)
+                {
+                    case HealthCondition.RootRot:
+                        Health -= (int)Math.Min(minutesPassed * 0.05, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.025, 50);
+                        break;
 
-                case HealthCondition.LeafSpot:
-                    Health -= (int)(minutesPassed * 0.033); // -2 per hour
-                    Mood -= (int)(minutesPassed * 0.017); // -1 per hour
+                    case HealthCondition.LeafSpot:
+                        Health -= (int)Math.Min(minutesPassed * 0.033, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.017, 50);
 
-                    // Random chance to recover
-                    if (_random.Next(1000) < minutesPassed && Health > 80)
-                    {
-                        HealthCondition = HealthCondition.Healthy;
-                    }
-                    break;
+                        if (_random.Next(1000) < minutesPassed && Health > 80)
+                        {
+                            HealthCondition = HealthCondition.Healthy;
+                        }
+                        break;
 
-                case HealthCondition.PestInfestation:
-                    Health -= (int)(minutesPassed * 0.05); // -3 per hour
-                    Mood -= (int)(minutesPassed * 0.033); // -2 per hour
-                    Cleanliness -= (int)(minutesPassed * 0.033); // -2 per hour
-                    break;
+                    case HealthCondition.PestInfestation:
+                        Health -= (int)Math.Min(minutesPassed * 0.05, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.033, 50);
+                        Cleanliness -= (int)Math.Min(minutesPassed * 0.033, 50);
+                        break;
 
-                case HealthCondition.NutrientDeficiency:
-                    Health -= (int)(minutesPassed * 0.025); // -1.5 per hour
-                    Mood -= (int)(minutesPassed * 0.017); // -1 per hour
+                    case HealthCondition.NutrientDeficiency:
+                        Health -= (int)Math.Min(minutesPassed * 0.025, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.017, 50);
 
-                    // Recover with good feeding
-                    if (Hunger < 20 && _random.Next(100) < 10)
-                    {
-                        HealthCondition = HealthCondition.Healthy;
-                    }
-                    break;
+                        if (Hunger < 20 && _random.Next(100) < 10)
+                        {
+                            HealthCondition = HealthCondition.Healthy;
+                        }
+                        break;
 
-                case HealthCondition.Sunburn:
-                    Health -= (int)(minutesPassed * 0.017); // -1 per hour
-                    Mood -= (int)(minutesPassed * 0.017); // -1 per hour
+                    case HealthCondition.Sunburn:
+                        Health -= (int)Math.Min(minutesPassed * 0.017, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.017, 50);
 
-                    // Random chance to recover after some time
-                    if (_random.Next(1000) < minutesPassed * 2)
-                    {
-                        HealthCondition = HealthCondition.Healthy;
-                    }
-                    break;
+                        if (_random.Next(1000) < minutesPassed * 2)
+                        {
+                            HealthCondition = HealthCondition.Healthy;
+                        }
+                        break;
 
-                case HealthCondition.Overtraining:
-                    Energy -= (int)(minutesPassed * 0.033); // -2 per hour
-                    Mood -= (int)(minutesPassed * 0.033); // -2 per hour
+                    case HealthCondition.Overtraining:
+                        Energy -= (int)Math.Min(minutesPassed * 0.033, 50);
+                        Mood -= (int)Math.Min(minutesPassed * 0.033, 50);
 
-                    // Recover with rest
-                    if (Energy > 90 && _random.Next(100) < 20)
-                    {
-                        HealthCondition = HealthCondition.Healthy;
-                    }
-                    break;
+                        if (Energy > 90 && _random.Next(100) < 20)
+                        {
+                            HealthCondition = HealthCondition.Healthy;
+                        }
+                        break;
+                }
+
+                QueuePropertyChanged(nameof(HealthConditionDisplay));
             }
-
-            OnPropertyChanged(nameof(HealthConditionDisplay));
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in UpdateHealthConditionEffects: {ex.Message}");
+            }
         }
 
         private void ProcessActiveEffects()
         {
             try
             {
-                // Handle delayed mood changes and other effects
                 if (_activeEffects.TryGetValue("PruningMoodBoost", out bool pruningActive) && pruningActive)
                 {
-                    // 2 hours after pruning, mood improves
                     DateTime pruneTime = GetActionCooldownTime("Prune");
                     if (pruneTime != DateTime.MinValue && (DateTime.Now - pruneTime).TotalHours > 2)
                     {
@@ -1385,7 +1914,6 @@ namespace BonsaiGotchiGame.Models
 
                 if (_activeEffects.TryGetValue("TrainingMoodBoost", out bool trainingActive) && trainingActive)
                 {
-                    // After training cooldown, mood improves from accomplishment
                     if (!IsActionOnCooldown("IntenseTraining"))
                     {
                         Mood += 15;
@@ -1395,7 +1923,6 @@ namespace BonsaiGotchiGame.Models
 
                 if (_activeEffects.TryGetValue("VegetablesMoodBoost", out bool veggiesActive) && veggiesActive)
                 {
-                    // 4 hours after eating vegetables, mood improves from health benefits
                     if ((DateTime.Now - LastUpdateTime).TotalHours > 4)
                     {
                         Mood += 5;
@@ -1406,7 +1933,6 @@ namespace BonsaiGotchiGame.Models
             }
             catch (Exception ex)
             {
-                // Log error but don't crash the application
                 System.Diagnostics.Debug.WriteLine($"Error in ProcessActiveEffects: {ex.Message}");
             }
         }
@@ -1415,50 +1941,57 @@ namespace BonsaiGotchiGame.Models
         {
             if (string.IsNullOrEmpty(action)) return;
 
-            lock (_updateLock)
+            try
             {
-                _actionCooldowns[action] = DateTime.Now;
-
-                // Force update the corresponding Can property
-                switch (action)
+                lock (_updateLock)
                 {
-                    case "Water":
-                        _canWater = false;
-                        OnPropertyChanged(nameof(CanWater));
-                        break;
-                    case "Prune":
-                        _canPrune = false;
-                        OnPropertyChanged(nameof(CanPrune));
-                        break;
-                    case "Rest":
-                        _canRest = false;
-                        OnPropertyChanged(nameof(CanRest));
-                        break;
-                    case "Fertilize":
-                        _canFertilize = false;
-                        OnPropertyChanged(nameof(CanFertilize));
-                        break;
-                    case "CleanArea":
-                        _canCleanArea = false;
-                        OnPropertyChanged(nameof(CanCleanArea));
-                        break;
-                    case "LightExercise":
-                        _canExercise = false;
-                        OnPropertyChanged(nameof(CanExercise));
-                        break;
-                    case "IntenseTraining":
-                        _canTrain = false;
-                        OnPropertyChanged(nameof(CanTrain));
-                        break;
-                    case "Play":
-                        _canPlay = false;
-                        OnPropertyChanged(nameof(CanPlay));
-                        break;
-                    case "Meditation":
-                        _canMeditate = false;
-                        OnPropertyChanged(nameof(CanMeditate));
-                        break;
+                    _actionCooldowns[action] = DateTime.Now;
+
+                    // Force update the corresponding Can property
+                    switch (action)
+                    {
+                        case "Water":
+                            _canWater = false;
+                            QueuePropertyChanged(nameof(CanWater));
+                            break;
+                        case "Prune":
+                            _canPrune = false;
+                            QueuePropertyChanged(nameof(CanPrune));
+                            break;
+                        case "Rest":
+                            _canRest = false;
+                            QueuePropertyChanged(nameof(CanRest));
+                            break;
+                        case "Fertilize":
+                            _canFertilize = false;
+                            QueuePropertyChanged(nameof(CanFertilize));
+                            break;
+                        case "CleanArea":
+                            _canCleanArea = false;
+                            QueuePropertyChanged(nameof(CanCleanArea));
+                            break;
+                        case "LightExercise":
+                            _canExercise = false;
+                            QueuePropertyChanged(nameof(CanExercise));
+                            break;
+                        case "IntenseTraining":
+                            _canTrain = false;
+                            QueuePropertyChanged(nameof(CanTrain));
+                            break;
+                        case "Play":
+                            _canPlay = false;
+                            QueuePropertyChanged(nameof(CanPlay));
+                            break;
+                        case "Meditation":
+                            _canMeditate = false;
+                            QueuePropertyChanged(nameof(CanMeditate));
+                            break;
+                    }
                 }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in SetActionCooldown: {ex.Message}");
             }
         }
 
@@ -1466,56 +1999,91 @@ namespace BonsaiGotchiGame.Models
         {
             if (string.IsNullOrEmpty(action)) return false;
 
-            if (!_actionCooldowns.TryGetValue(action, out DateTime lastUsed))
-                return false;
+            try
+            {
+                if (!_actionCooldowns.TryGetValue(action, out DateTime lastUsed))
+                    return false;
 
-            if (!_actionCooldownTimes.TryGetValue(action, out int cooldownMinutes))
-                return false;
+                if (!_actionCooldownTimes.TryGetValue(action, out int cooldownMinutes))
+                    return false;
 
-            return (DateTime.Now - lastUsed).TotalMinutes < cooldownMinutes;
+                return (DateTime.Now - lastUsed).TotalMinutes < cooldownMinutes;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in IsActionOnCooldown: {ex.Message}");
+                return false;
+            }
         }
 
         private DateTime GetActionCooldownTime(string action)
         {
             if (string.IsNullOrEmpty(action)) return DateTime.MinValue;
-            return _actionCooldowns.TryGetValue(action, out DateTime time) ? time : DateTime.MinValue;
+
+            try
+            {
+                return _actionCooldowns.TryGetValue(action, out DateTime time) ? time : DateTime.MinValue;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in GetActionCooldownTime: {ex.Message}");
+                return DateTime.MinValue;
+            }
         }
 
-        // New method to check for expired cooldowns and notify when actions become available
         private void CheckForExpiredCooldowns()
         {
-            // Check each action and update the backing field if cooldown has expired
-            UpdateCooldownState("Water", ref _canWater, nameof(CanWater));
-            UpdateCooldownState("Prune", ref _canPrune, nameof(CanPrune));
-            UpdateCooldownState("Rest", ref _canRest, nameof(CanRest));
-            UpdateCooldownState("Fertilize", ref _canFertilize, nameof(CanFertilize));
-            UpdateCooldownState("CleanArea", ref _canCleanArea, nameof(CanCleanArea));
+            try
+            {
+                UpdateCooldownState("Water", ref _canWater, nameof(CanWater));
+                UpdateCooldownState("Prune", ref _canPrune, nameof(CanPrune));
+                UpdateCooldownState("Rest", ref _canRest, nameof(CanRest));
+                UpdateCooldownState("Fertilize", ref _canFertilize, nameof(CanFertilize));
+                UpdateCooldownState("CleanArea", ref _canCleanArea, nameof(CanCleanArea));
 
-            // These actions have additional energy requirements
-            UpdateCooldownStateWithEnergyCheck("LightExercise", ref _canExercise, nameof(CanExercise), 30);
-            UpdateCooldownStateWithEnergyCheck("IntenseTraining", ref _canTrain, nameof(CanTrain), 50);
-            UpdateCooldownStateWithEnergyCheck("Play", ref _canPlay, nameof(CanPlay), 30);
+                UpdateCooldownStateWithEnergyCheck("LightExercise", ref _canExercise, nameof(CanExercise), 30);
+                UpdateCooldownStateWithEnergyCheck("IntenseTraining", ref _canTrain, nameof(CanTrain), 50);
+                UpdateCooldownStateWithEnergyCheck("Play", ref _canPlay, nameof(CanPlay), 30);
 
-            UpdateCooldownState("Meditation", ref _canMeditate, nameof(CanMeditate));
+                UpdateCooldownState("Meditation", ref _canMeditate, nameof(CanMeditate));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in CheckForExpiredCooldowns: {ex.Message}");
+            }
         }
 
         private void UpdateCooldownState(string action, ref bool canField, string propertyName)
         {
-            bool onCooldown = IsActionOnCooldown(action);
-            if (canField == onCooldown) // If field is opposite of what it should be
+            try
             {
-                canField = !onCooldown;
-                OnPropertyChanged(propertyName);
+                bool onCooldown = IsActionOnCooldown(action);
+                if (canField == onCooldown)
+                {
+                    canField = !onCooldown;
+                    QueuePropertyChanged(propertyName);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in UpdateCooldownState: {ex.Message}");
             }
         }
 
         private void UpdateCooldownStateWithEnergyCheck(string action, ref bool canField, string propertyName, int energyRequired)
         {
-            bool canPerform = !IsActionOnCooldown(action) && Energy > energyRequired;
-            if (canField != canPerform)
+            try
             {
-                canField = canPerform;
-                OnPropertyChanged(propertyName);
+                bool canPerform = !IsActionOnCooldown(action) && Energy > energyRequired;
+                if (canField != canPerform)
+                {
+                    canField = canPerform;
+                    QueuePropertyChanged(propertyName);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in UpdateCooldownStateWithEnergyCheck: {ex.Message}");
             }
         }
 
@@ -1523,7 +2091,47 @@ namespace BonsaiGotchiGame.Models
 
         protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            try
+            {
+                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Error in OnPropertyChanged: {ex.Message}");
+            }
+        }
+
+        // Dispose pattern for cleanup
+        public void Dispose()
+        {
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                try
+                {
+                    _propertyChangeTimer?.Dispose();
+
+                    lock (_pendingPropertyChanges)
+                    {
+                        _pendingPropertyChanges.Clear();
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Error disposing Bonsai: {ex.Message}");
+                }
+            }
+        }
+
+        ~Bonsai()
+        {
+            Dispose(false);
         }
     }
 }
+

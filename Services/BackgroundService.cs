@@ -1,18 +1,16 @@
 using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Windows;
-using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
 namespace BonsaiGotchiGame.Services
 {
     public class BackgroundService
     {
-        private readonly Dictionary<TimeOfDay, string> _backgroundPaths;
-        private readonly Dictionary<TimeOfDay, BitmapImage> _cachedBackgrounds = [];
-        private bool _hasAttemptedLoading = false;
-        private static readonly object _cacheLock = new object(); // Add lock object for thread safety
+        private readonly string _backgroundsPath;
+        private BitmapImage? _morningImage;
+        private BitmapImage? _afternoonImage;
+        private BitmapImage? _eveningImage;
+        private BitmapImage? _nightImage;
 
         public enum TimeOfDay
         {
@@ -24,282 +22,223 @@ namespace BonsaiGotchiGame.Services
 
         public BackgroundService()
         {
-            _backgroundPaths = new Dictionary<TimeOfDay, string>
-            {
-                // Consistently use png extension throughout
-                { TimeOfDay.Morning, "morning.png" },
-                { TimeOfDay.Afternoon, "afternoon.png" },
-                { TimeOfDay.Evening, "evening.png" },
-                { TimeOfDay.Night, "night.png" }
-            };
+            // Get the base directory of the application
+            var baseDirectory = AppDomain.CurrentDomain.BaseDirectory;
+            _backgroundsPath = Path.Combine(baseDirectory, "Assets", "Backgrounds");
 
-            // Don't preload in constructor - wait until first request
-            // This helps avoid startup errors
+            // Load all background images at startup
+            LoadBackgroundImages();
         }
 
-        private void PreloadBackgrounds()
-        {
-            // Avoid multiple loading attempts with proper thread safety
-            lock (_cacheLock)
-            {
-                if (_hasAttemptedLoading)
-                    return;
-
-                _hasAttemptedLoading = true;
-
-                try
-                {
-                    // Try to load all backgrounds
-                    // Fixed CA2263: Using generic overload instead of System.Type overload
-                    foreach (var timeOfDay in Enum.GetValues<TimeOfDay>())
-                    {
-                        PreloadBackground(timeOfDay);
-                    }
-
-                    // If no backgrounds were loaded, create default ones
-                    if (_cachedBackgrounds.Count == 0)
-                    {
-                        CreateDefaultBackgrounds();
-                    }
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error preloading backgrounds: {ex.Message}");
-                    CreateDefaultBackgrounds();
-                }
-            }
-        }
-
-        private void CreateDefaultBackgrounds()
-        {
-            Console.WriteLine("Creating default color backgrounds");
-
-            // Create color backgrounds as fallbacks
-            lock (_cacheLock)
-            {
-                _cachedBackgrounds[TimeOfDay.Morning] = CreateColorBackground(Colors.LightYellow);
-                _cachedBackgrounds[TimeOfDay.Afternoon] = CreateColorBackground(Colors.LightGreen);
-                _cachedBackgrounds[TimeOfDay.Evening] = CreateColorBackground(Colors.LightSalmon);
-                _cachedBackgrounds[TimeOfDay.Night] = CreateColorBackground(Colors.MidnightBlue);
-            }
-        }
-
-        private static BitmapImage CreateColorBackground(Color color)
-        {
-            // Create a solid color background
-            int width = 1024;
-            int height = 1024;
-
-            var drawingVisual = new DrawingVisual();
-            using (DrawingContext dc = drawingVisual.RenderOpen())
-            {
-                dc.DrawRectangle(new SolidColorBrush(color), null, new Rect(0, 0, width, height));
-            }
-
-            var renderTarget = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
-            renderTarget.Render(drawingVisual);
-            renderTarget.Freeze();
-
-            // Convert to BitmapImage
-            var bitmap = new BitmapImage();
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(renderTarget));
-
-            using (var stream = new MemoryStream())
-            {
-                encoder.Save(stream);
-                stream.Seek(0, SeekOrigin.Begin);
-
-                bitmap.BeginInit();
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.StreamSource = stream;
-                bitmap.EndInit();
-                bitmap.Freeze();
-            }
-
-            return bitmap;
-        }
-
-        private void PreloadBackground(TimeOfDay timeOfDay)
-        {
-            if (_backgroundPaths.TryGetValue(timeOfDay, out string? filename) && !string.IsNullOrEmpty(filename))
-            {
-                // Try different paths to find the image
-                if (!TryLoadBackgroundImage(timeOfDay, filename))
-                {
-                    Console.WriteLine($"Failed to load background for {timeOfDay}");
-                }
-            }
-        }
-
-        private bool TryLoadBackgroundImage(TimeOfDay timeOfDay, string filename)
+        private void LoadBackgroundImages()
         {
             try
             {
-                // Log what we're looking for
-                Console.WriteLine($"Trying to load background image: {filename}");
+                // Load morning image (6 AM - 12 PM)
+                _morningImage = LoadImage("morning");
 
-                // 1. Try as content file (relative to executable)
-                string contentPath = Path.Combine("Assets", "Backgrounds", filename);
-                Console.WriteLine($"Checking path: {contentPath}");
-                if (File.Exists(contentPath))
+                // Load afternoon image (12 PM - 6 PM)
+                _afternoonImage = LoadImage("afternoon");
+
+                // Load evening image (6 PM - 10 PM)
+                _eveningImage = LoadImage("evening");
+
+                // Load night image (10 PM - 6 AM)
+                _nightImage = LoadImage("night");
+
+                Console.WriteLine("Background images loaded successfully.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading background images: {ex.Message}");
+            }
+        }
+
+        private BitmapImage? LoadImage(string timeOfDay)
+        {
+            try
+            {
+                // Try different file extensions
+                string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+                foreach (string ext in extensions)
                 {
-                    LoadImageFromFile(timeOfDay, contentPath);
-                    Console.WriteLine($"Loaded background from: {contentPath}");
-                    return true;
-                }
+                    string imagePath = Path.Combine(_backgroundsPath, timeOfDay + ext);
 
-                // 2. Try as absolute path in executable directory
-                string absolutePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "Backgrounds", filename);
-                Console.WriteLine($"Checking path: {absolutePath}");
-                if (File.Exists(absolutePath))
-                {
-                    LoadImageFromFile(timeOfDay, absolutePath);
-                    Console.WriteLine($"Loaded background from: {absolutePath}");
-                    return true;
-                }
-
-                // 3. Try with user profile path from screenshot
-                string userProfilePath = Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                    "source", "repos", "BonsaiGotchiGame", "Assets", "Backgrounds", filename);
-
-                Console.WriteLine($"Checking path: {userProfilePath}");
-                if (File.Exists(userProfilePath))
-                {
-                    LoadImageFromFile(timeOfDay, userProfilePath);
-                    Console.WriteLine($"Loaded background from: {userProfilePath}");
-                    return true;
-                }
-
-                // 4. Try loading from embedded resource 
-                try
-                {
-                    var assembly = System.Reflection.Assembly.GetExecutingAssembly();
-                    string resourceName = $"BonsaiGotchiGame.Assets.Backgrounds.{filename}";
-                    Console.WriteLine($"Checking embedded resource: {resourceName}");
-
-                    // List available resources for debugging
-                    var resourceNames = assembly.GetManifestResourceNames();
-                    Console.WriteLine("Available embedded resources:");
-                    foreach (var resource in resourceNames)
-                    {
-                        Console.WriteLine($"- {resource}");
-                    }
-
-                    using var stream = assembly.GetManifestResourceStream(resourceName);
-                    if (stream != null)
+                    if (File.Exists(imagePath))
                     {
                         var bitmap = new BitmapImage();
                         bitmap.BeginInit();
+                        bitmap.UriSource = new Uri(imagePath, UriKind.Absolute);
                         bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                        bitmap.StreamSource = stream;
                         bitmap.EndInit();
-                        bitmap.Freeze();
+                        bitmap.Freeze(); // Make it thread-safe
 
-                        lock (_cacheLock)
-                        {
-                            _cachedBackgrounds[timeOfDay] = bitmap;
-                        }
-                        Console.WriteLine($"Loaded background from embedded resource: {resourceName}");
-                        return true;
+                        Console.WriteLine($"Loaded {timeOfDay} background: {imagePath}");
+                        return bitmap;
                     }
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Error loading from embedded resource: {ex.Message}");
-                }
 
-                Console.WriteLine($"Could not find background image: {filename}");
-                return false;
+                Console.WriteLine($"Background image not found for {timeOfDay}");
+                return null;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Error loading background {filename}: {ex.Message}");
-                return false;
+                Console.WriteLine($"Error loading {timeOfDay} image: {ex.Message}");
+                return null;
             }
         }
 
-        private void LoadImageFromFile(TimeOfDay timeOfDay, string path)
+        public BitmapImage? GetBackgroundImage(int hour)
         {
-            try
+            return hour switch
             {
-                var bitmap = new BitmapImage();
-                bitmap.BeginInit();
-                bitmap.UriSource = new Uri(path, UriKind.Absolute);
-                bitmap.CacheOption = BitmapCacheOption.OnLoad;
-                bitmap.EndInit();
-                bitmap.Freeze();
-
-                lock (_cacheLock)
-                {
-                    _cachedBackgrounds[timeOfDay] = bitmap;
-                }
-
-                // Log details about the loaded image
-                Console.WriteLine($"Successfully loaded image. Size: {bitmap.PixelWidth}x{bitmap.PixelHeight}, Format: {bitmap.Format}");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error in LoadImageFromFile: {ex.Message}");
-                throw; // Rethrow so the caller can handle it
-            }
+                >= 6 and < 12 => _morningImage,    // Morning: 6 AM - 12 PM
+                >= 12 and < 18 => _afternoonImage, // Afternoon: 12 PM - 6 PM
+                >= 18 and < 22 => _eveningImage,   // Evening: 6 PM - 10 PM
+                _ => _nightImage                    // Night: 10 PM - 6 AM
+            };
         }
 
-        public string GetBackgroundPath(int gameHour)
+        public string GetBackgroundPath(int hour)
         {
-            var timeOfDay = GetTimeOfDay(gameHour);
-
-            // Try to get the filename - consistently use png extension
-            string fileName = _backgroundPaths.TryGetValue(timeOfDay, out string? path) ? path : "morning.png";
-
-            // Return a path that's most likely to exist
-            return Path.Combine("Assets", "Backgrounds", fileName);
-        }
-
-        public BitmapImage GetBackgroundImage(int gameHour)
-        {
-            // Load backgrounds on first request if not already loaded
-            if (!_hasAttemptedLoading)
+            string timeOfDay = hour switch
             {
-                PreloadBackgrounds();
-            }
+                >= 6 and < 12 => "morning",    // Morning: 6 AM - 12 PM
+                >= 12 and < 18 => "afternoon", // Afternoon: 12 PM - 6 PM
+                >= 18 and < 22 => "evening",   // Evening: 6 PM - 10 PM
+                _ => "night"                    // Night: 10 PM - 6 AM
+            };
 
-            var timeOfDay = GetTimeOfDay(gameHour);
+            // Try different file extensions to find the actual file
+            string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
 
-            // Return cached image if available
-            lock (_cacheLock)
+            foreach (string ext in extensions)
             {
-                if (_cachedBackgrounds.TryGetValue(timeOfDay, out BitmapImage? image) && image != null)
+                string imagePath = Path.Combine(_backgroundsPath, timeOfDay + ext);
+                if (File.Exists(imagePath))
                 {
-                    return image;
-                }
-
-                // Fall back to morning or first available background
-                // Fixed CA2263: Using generic overload instead of System.Type overload
-                foreach (var tod in Enum.GetValues<TimeOfDay>())
-                {
-                    if (_cachedBackgrounds.TryGetValue(tod, out BitmapImage? fallback) && fallback != null)
-                    {
-                        return fallback;
-                    }
+                    return imagePath;
                 }
             }
 
-            // Last resort - create and return a default background
-            return CreateColorBackground(Colors.LightGreen);
+            // Return a default path if no file is found
+            return Path.Combine(_backgroundsPath, timeOfDay + ".png");
         }
 
-        public static TimeOfDay GetTimeOfDay(int gameHour)
+        public static TimeOfDay GetTimeOfDay(int hour)
         {
-            if (gameHour >= 6 && gameHour < 12)
-                return TimeOfDay.Morning;
-            else if (gameHour >= 12 && gameHour < 18)
-                return TimeOfDay.Afternoon;
-            else if (gameHour >= 18 && gameHour < 22)
-                return TimeOfDay.Evening;
-            else
-                return TimeOfDay.Night;
+            return hour switch
+            {
+                >= 6 and < 12 => TimeOfDay.Morning,    // Morning: 6 AM - 12 PM
+                >= 12 and < 18 => TimeOfDay.Afternoon, // Afternoon: 12 PM - 6 PM
+                >= 18 and < 22 => TimeOfDay.Evening,   // Evening: 6 PM - 10 PM
+                _ => TimeOfDay.Night                    // Night: 10 PM - 6 AM
+            };
+        }
+
+        public string GetTimeOfDayName(int hour)
+        {
+            return hour switch
+            {
+                >= 6 and < 12 => "Morning",
+                >= 12 and < 18 => "Afternoon",
+                >= 18 and < 22 => "Evening",
+                _ => "Night"
+            };
+        }
+
+        public BitmapImage? GetBackgroundImageByTimeOfDay(TimeOfDay timeOfDay)
+        {
+            return timeOfDay switch
+            {
+                TimeOfDay.Morning => _morningImage,
+                TimeOfDay.Afternoon => _afternoonImage,
+                TimeOfDay.Evening => _eveningImage,
+                TimeOfDay.Night => _nightImage,
+                _ => _morningImage
+            };
+        }
+
+        public string GetBackgroundPathByTimeOfDay(TimeOfDay timeOfDay)
+        {
+            string timeOfDayString = timeOfDay switch
+            {
+                TimeOfDay.Morning => "morning",
+                TimeOfDay.Afternoon => "afternoon",
+                TimeOfDay.Evening => "evening",
+                TimeOfDay.Night => "night",
+                _ => "morning"
+            };
+
+            // Try different file extensions to find the actual file
+            string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+            foreach (string ext in extensions)
+            {
+                string imagePath = Path.Combine(_backgroundsPath, timeOfDayString + ext);
+                if (File.Exists(imagePath))
+                {
+                    return imagePath;
+                }
+            }
+
+            // Return a default path if no file is found
+            return Path.Combine(_backgroundsPath, timeOfDayString + ".png");
+        }
+
+        public string GetBackgroundsDirectory()
+        {
+            return _backgroundsPath;
+        }
+
+        public bool BackgroundExists(int hour)
+        {
+            string timeOfDay = hour switch
+            {
+                >= 6 and < 12 => "morning",
+                >= 12 and < 18 => "afternoon",
+                >= 18 and < 22 => "evening",
+                _ => "night"
+            };
+
+            string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+            foreach (string ext in extensions)
+            {
+                string imagePath = Path.Combine(_backgroundsPath, timeOfDay + ext);
+                if (File.Exists(imagePath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool BackgroundExistsByTimeOfDay(TimeOfDay timeOfDay)
+        {
+            string timeOfDayString = timeOfDay switch
+            {
+                TimeOfDay.Morning => "morning",
+                TimeOfDay.Afternoon => "afternoon",
+                TimeOfDay.Evening => "evening",
+                TimeOfDay.Night => "night",
+                _ => "morning"
+            };
+
+            string[] extensions = { ".jpg", ".jpeg", ".png", ".bmp" };
+
+            foreach (string ext in extensions)
+            {
+                string imagePath = Path.Combine(_backgroundsPath, timeOfDayString + ext);
+                if (File.Exists(imagePath))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }

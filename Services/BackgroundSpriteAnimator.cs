@@ -13,7 +13,7 @@ namespace BonsaiGotchiGame.Services
     {
         private readonly Image _targetImage;
         private bool _disposed = false;
-        private readonly Dictionary<BackgroundService.TimeOfDay, BitmapSource> _backgroundSprites = [];
+        private readonly Dictionary<BackgroundService.TimeOfDay, BitmapSource> _backgroundSprites = new Dictionary<BackgroundService.TimeOfDay, BitmapSource>();
         private readonly object _spritesLock = new object(); // Add lock for thread safety
 
         public BackgroundSpriteAnimator(Image targetImage)
@@ -181,12 +181,12 @@ namespace BonsaiGotchiGame.Services
             try
             {
                 var timeOfDay = BackgroundService.GetTimeOfDay(gameHour);
-                BitmapSource? background = null; // Fixing CS8600: Explicitly mark as nullable
+                BitmapSource? background = null;
 
                 // Get the appropriate background using thread-safe access
                 lock (_spritesLock)
                 {
-                    if (_backgroundSprites.TryGetValue(timeOfDay, out BitmapSource? timeBackground) && timeBackground != null) // Fixing CS8600
+                    if (_backgroundSprites.TryGetValue(timeOfDay, out BitmapSource? timeBackground) && timeBackground != null)
                     {
                         background = timeBackground;
                     }
@@ -195,7 +195,7 @@ namespace BonsaiGotchiGame.Services
                         // Try any available background
                         foreach (var tod in Enum.GetValues<BackgroundService.TimeOfDay>())
                         {
-                            if (_backgroundSprites.TryGetValue(tod, out BitmapSource? fallback) && fallback != null) // Fixing CS8600
+                            if (_backgroundSprites.TryGetValue(tod, out BitmapSource? fallback) && fallback != null)
                             {
                                 background = fallback;
                                 break;

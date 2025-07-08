@@ -1,256 +1,148 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using BonsaiGotchiGame.Models;
 
-namespace BonsaiGotchiGame
+namespace BonsaiGotchiGame.Models
 {
-    public partial class ShopManager
+    public class ShopManager
     {
-        private readonly BonsaiGotchiGame.Models.Bonsai _bonsai;
-        public List<ShopItem> ShopItems { get; private set; }
+        private readonly Bonsai _bonsai;
+        public List<ShopItem> ShopItems { get; private set; } = new List<ShopItem>();
 
-        public ShopManager(BonsaiGotchiGame.Models.Bonsai bonsai)
+        public ShopManager(Bonsai bonsai)
         {
-            _bonsai = bonsai;
-            ShopItems = InitializeShopItems();
+            _bonsai = bonsai ?? throw new ArgumentNullException(nameof(bonsai));
+            InitializeShopItems();
         }
 
-        private List<ShopItem> InitializeShopItems()
+        private void InitializeShopItems()
         {
-            var items = new List<ShopItem>
+            ShopItems = new List<ShopItem>
             {
-                // Basic items that are always available
-                new ShopItem
-                {
-                    Id = "basic_clean",
-                    Name = "Basic Cleaning Kit",
-                    Description = "A simple kit for cleaning your bonsai's area.",
-                    Icon = "🧹",
-                    Category = "Activity",
-                    Price = 0,
-                    IsUnlocked = true,
-                    ActivityType = "Clean"
-                },
-                new ShopItem
-                {
-                    Id = "basic_exercise",
-                    Name = "Basic Exercise",
-                    Description = "Simple stretching exercises for your bonsai.",
-                    Icon = "🏃",
-                    Category = "Activity",
-                    Price = 0,
-                    IsUnlocked = true,
-                    ActivityType = "Exercise"
-                },
-                new ShopItem
-                {
-                    Id = "basic_training",
-                    Name = "Basic Training",
-                    Description = "Standard training techniques for bonsai health.",
-                    Icon = "🏋️",
-                    Category = "Activity",
-                    Price = 0,
-                    IsUnlocked = true,
-                    ActivityType = "Training"
-                },
-                new ShopItem
-                {
-                    Id = "ball",
-                    Name = "Small Ball",
-                    Description = "A simple ball for your bonsai to play with.",
-                    Icon = "⚽",
-                    Category = "Activity",
-                    Price = 0,
-                    IsUnlocked = true,
-                    ActivityType = "Play"
-                },
-                new ShopItem
-                {
-                    Id = "basic_meditation",
-                    Name = "Basic Meditation",
-                    Description = "Simple meditation techniques to calm your bonsai.",
-                    Icon = "🧘",
-                    Category = "Activity",
-                    Price = 0,
-                    IsUnlocked = true,
-                    ActivityType = "Meditate"
-                },
+                // Food Items
+                new ShopItem("burger", "Burger", "Tasty but unhealthy fast food", 2, "🍔", category: "Food"),
+                new ShopItem("ice_cream", "Ice Cream", "Sweet frozen treat", 3, "🍦", category: "Food"),
+                new ShopItem("vegetables", "Vegetables", "Healthy green nutrition", 4, "🥦", category: "Food"),
+                new ShopItem("premium_nutrients", "Premium Nutrients", "High-quality plant food", 8, "🧪", category: "Food"),
+                new ShopItem("special_treat", "Special Treat", "Rare delicious snack", 12, "🍭", category: "Food"),
 
-                // Food items
-                new ShopItem
-                {
-                    Id = "burger",
-                    Name = "Burger",
-                    Description = "Tasty but not healthy. +3 Mood, -5 Health, -30 Hunger",
-                    Icon = "🍔",
-                    Category = "Food",
-                    Price = 5,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "ice_cream",
-                    Name = "Ice Cream",
-                    Description = "Very tasty but very unhealthy. +15 Mood, -10 Health, -15 Hunger",
-                    Icon = "🍦",
-                    Category = "Food",
-                    Price = 8,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "vegetables",
-                    Name = "Vegetables",
-                    Description = "Healthy but not tasty. -10 Mood initially, +15 Health, -25 Hunger",
-                    Icon = "🥦",
-                    Category = "Food",
-                    Price = 10,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "premium_nutrients",
-                    Name = "Premium Nutrients",
-                    Description = "High quality food. +10 Mood, +20 Health, -40 Hunger",
-                    Icon = "🧪",
-                    Category = "Food",
-                    Price = 20,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "special_treat",
-                    Name = "Special Treat",
-                    Description = "Super tasty treat. +25 Mood, -5 Health, -10 Hunger, +30 Energy",
-                    Icon = "🍭",
-                    Category = "Food",
-                    Price = 15,
-                    IsUnlocked = false
-                },
+                // Clean Activities
+                new ShopItem("basic_clean", "Basic Cleaning", "Simple cleaning tools", 0, "🧹", category: "Activity", activityType: "Clean"),
+                new ShopItem("power_clean", "Power Cleaning", "Advanced cleaning equipment", 15, "🚿", category: "Activity", activityType: "Clean"),
+                new ShopItem("eco_clean", "Eco Cleaning", "Environmentally friendly cleaning", 25, "🌿", category: "Activity", activityType: "Clean"),
 
-                // Premium activity items
-                new ShopItem
-                {
-                    Id = "premium_cleaning",
-                    Name = "Premium Cleaning Kit",
-                    Description = "A high-quality cleaning kit that makes your bonsai extra clean. +15% effectiveness.",
-                    Icon = "✨",
-                    Category = "Activity",
-                    Price = 25,
-                    IsUnlocked = false,
-                    ActivityType = "Clean"
-                },
-                new ShopItem
-                {
-                    Id = "treadmill",
-                    Name = "Bonsai Treadmill",
-                    Description = "A tiny treadmill for your bonsai to exercise on. +20% effectiveness.",
-                    Icon = "🏃‍♂️",
-                    Category = "Activity",
-                    Price = 30,
-                    IsUnlocked = false,
-                    ActivityType = "Exercise"
-                },
-                new ShopItem
-                {
-                    Id = "gym_equipment",
-                    Name = "Mini Gym Set",
-                    Description = "A complete set of training equipment for your bonsai. +25% effectiveness.",
-                    Icon = "🏋️‍♂️",
-                    Category = "Activity",
-                    Price = 40,
-                    IsUnlocked = false,
-                    ActivityType = "Training"
-                },
-                new ShopItem
-                {
-                    Id = "video_game",
-                    Name = "Bonsai Video Game",
-                    Description = "A fun video game for your bonsai to play with. +30% mood boost.",
-                    Icon = "🎮",
-                    Category = "Activity",
-                    Price = 35,
-                    IsUnlocked = false,
-                    ActivityType = "Play"
-                },
-                new ShopItem
-                {
-                    Id = "zen_garden",
-                    Name = "Zen Garden",
-                    Description = "A peaceful zen garden for meditation. +25% effectiveness.",
-                    Icon = "🏞️",
-                    Category = "Activity",
-                    Price = 50,
-                    IsUnlocked = false,
-                    ActivityType = "Meditate"
-                },
+                // Exercise Activities
+                new ShopItem("basic_exercise", "Basic Exercise", "Simple stretching routine", 0, "🏃", category: "Activity", activityType: "Exercise"),
+                new ShopItem("cardio_workout", "Cardio Workout", "Heart-pumping exercise routine", 20, "💓", category: "Activity", activityType: "Exercise"),
+                new ShopItem("strength_training", "Strength Training", "Muscle-building exercises", 30, "💪", category: "Activity", activityType: "Exercise"),
 
-                // Decorations
-                new ShopItem
-                {
-                    Id = "small_pot",
-                    Name = "Decorative Pot",
-                    Description = "A small decorative pot for your bonsai. +5% mood boost.",
-                    Icon = "🪴",
-                    Category = "Decoration",
-                    Price = 15,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "lantern",
-                    Name = "Japanese Lantern",
-                    Description = "A beautiful lantern for your bonsai's home. +8% mood boost.",
-                    Icon = "🏮",
-                    Category = "Decoration",
-                    Price = 25,
-                    IsUnlocked = false
-                },
-                new ShopItem
-                {
-                    Id = "fountain",
-                    Name = "Mini Fountain",
-                    Description = "A small water fountain that creates a peaceful atmosphere. +10% mood boost.",
-                    Icon = "⛲",
-                    Category = "Decoration",
-                    Price = 40,
-                    IsUnlocked = false
-                }
+                // Training Activities
+                new ShopItem("basic_training", "Basic Training", "Fundamental training exercises", 0, "🏋️", category: "Activity", activityType: "Training"),
+                new ShopItem("advanced_training", "Advanced Training", "Intensive skill development", 25, "🥇", category: "Activity", activityType: "Training"),
+                new ShopItem("expert_training", "Expert Training", "Master-level training program", 40, "🏆", category: "Activity", activityType: "Training"),
+
+                // Play Activities
+                new ShopItem("ball", "Ball", "Simple ball for playing", 0, "⚽", category: "Activity", activityType: "Play"),
+                new ShopItem("puzzle_games", "Puzzle Games", "Mind-challenging games", 18, "🧩", category: "Activity", activityType: "Play"),
+                new ShopItem("adventure_kit", "Adventure Kit", "Exciting exploration tools", 35, "🗺️", category: "Activity", activityType: "Play"),
+
+                // Meditation Activities
+                new ShopItem("basic_meditation", "Basic Meditation", "Simple mindfulness practice", 0, "🧘", category: "Activity", activityType: "Meditate"),
+                new ShopItem("zen_meditation", "Zen Meditation", "Advanced meditation techniques", 22, "☯️", category: "Activity", activityType: "Meditate"),
+                new ShopItem("transcendental", "Transcendental", "Deep spiritual meditation", 45, "🕉️", category: "Activity", activityType: "Meditate")
             };
 
-            // Set computed properties for each item
-            foreach (var item in items)
+            // Mark basic items as unlocked by default
+            foreach (var item in ShopItems.Where(i => i.Price == 0))
             {
-                item.CanPurchase = !item.IsUnlocked;
-                item.ButtonText = item.IsUnlocked ? "Owned" : $"Buy ({item.Price})";
+                item.IsUnlocked = true;
             }
-
-            return items;
         }
 
         public List<ShopItem> GetItemsByType(string activityType)
         {
             return ShopItems.Where(item =>
                 item.Category == "Activity" &&
-                item.ActivityType == activityType &&
-                item.IsUnlocked).ToList();
+                string.Equals(item.ActivityType, activityType, StringComparison.OrdinalIgnoreCase))
+                .ToList();
         }
-    }
 
-    public class ShopItem
-    {
-        public string Id { get; set; } = string.Empty;
-        public string Name { get; set; } = string.Empty;
-        public string Description { get; set; } = string.Empty;
-        public string Icon { get; set; } = "❓";
-        public string Category { get; set; } = "Activity";
-        public int Price { get; set; }
-        public bool IsUnlocked { get; set; }
-        public string ButtonText { get; set; } = "Buy";
-        public bool CanPurchase { get; set; } = true;
-        public string ActivityType { get; set; } = string.Empty;
+        public List<ShopItem> GetItemsByCategory(string category)
+        {
+            return ShopItems.Where(item =>
+                string.Equals(item.Category, category, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
+
+        public bool PurchaseItem(string itemId)
+        {
+            var item = ShopItems.FirstOrDefault(i => i.Id == itemId);
+            if (item == null || item.IsUnlocked)
+                return false;
+
+            if (_bonsai.Currency.CanAfford(item.Price))
+            {
+                if (_bonsai.Currency.SpendBills(item.Price))
+                {
+                    item.IsUnlocked = true;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public bool PurchaseAndAddToInventory(string itemId, int quantity = 1)
+        {
+            var item = ShopItems.FirstOrDefault(i => i.Id == itemId);
+            if (item == null || quantity <= 0)
+                return false;
+
+            // For food items, we can buy multiple even if already "unlocked"
+            if (item.Category == "Food")
+            {
+                int totalCost = item.Price * quantity;
+                if (_bonsai.Currency.CanAfford(totalCost))
+                {
+                    if (_bonsai.Currency.SpendBills(totalCost))
+                    {
+                        _bonsai.Inventory.AddItem(itemId, quantity);
+                        item.IsUnlocked = true; // Mark as unlocked so it shows "Buy More"
+                        return true;
+                    }
+                }
+            }
+            else
+            {
+                // For non-food items, use regular purchase logic
+                return PurchaseItem(itemId);
+            }
+
+            return false;
+        }
+
+        public ShopItem? GetItem(string itemId)
+        {
+            return ShopItems.FirstOrDefault(i => i.Id == itemId);
+        }
+
+        public bool IsItemUnlocked(string itemId)
+        {
+            var item = GetItem(itemId);
+            return item?.IsUnlocked ?? false;
+        }
+
+        // Method to sync shop state with save data
+        public void LoadUnlockedItems(List<string> unlockedItemIds)
+        {
+            foreach (string itemId in unlockedItemIds)
+            {
+                var item = GetItem(itemId);
+                if (item != null)
+                {
+                    item.IsUnlocked = true;
+                }
+            }
+        }
     }
 }

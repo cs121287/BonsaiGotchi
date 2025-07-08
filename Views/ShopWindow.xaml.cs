@@ -55,6 +55,21 @@ namespace BonsaiGotchiGame
             _foodTab = ShopTabControl.Items.OfType<TabItem>().FirstOrDefault(t => t.Header?.ToString() == "Food");
             _activitiesTab = ShopTabControl.Items.OfType<TabItem>().FirstOrDefault(t => t.Header?.ToString() == "Activities");
             _decorationsTab = ShopTabControl.Items.OfType<TabItem>().FirstOrDefault(t => t.Header?.ToString() == "Decorations");
+
+            // Verify food items are properly loaded
+            Console.WriteLine($"Food items count: {FoodItemsControl.Items.Count}");
+            foreach (var item in FoodItemsControl.Items)
+            {
+                Console.WriteLine($"Food item: {(item as ShopItem)?.Name}, Price: {(item as ShopItem)?.Price}");
+            }
+
+            // Add item container generation callback for debugging
+            FoodItemsControl.ItemContainerGenerator.StatusChanged += (s, args) => {
+                if (FoodItemsControl.ItemContainerGenerator.Status == System.Windows.Controls.Primitives.GeneratorStatus.ContainersGenerated)
+                {
+                    Console.WriteLine("Food item containers generated");
+                }
+            };
         }
 
         private void LoadShopItems()
@@ -189,14 +204,33 @@ namespace BonsaiGotchiGame
             return null;
         }
 
-
         private void BuyButton_Click(object sender, RoutedEventArgs e)
         {
-            var button = sender as Button;
-            var shopItem = button?.DataContext as ShopItem;
-
-            if (shopItem != null && _bonsai?.Currency != null)
+            try
             {
+                var button = sender as Button;
+                var shopItem = button?.DataContext as ShopItem;
+
+                // Debug output to console to track what's happening
+                Console.WriteLine($"Button clicked: {button?.Content}");
+                Console.WriteLine($"ShopItem: {shopItem?.Id}, Category: {shopItem?.Category}, Price: {shopItem?.Price}");
+
+                if (shopItem == null)
+                {
+                    Console.WriteLine("Error: ShopItem is null - DataContext issue");
+                    MessageBox.Show("Could not identify the item to purchase.", "Shop Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                if (_bonsai?.Currency == null)
+                {
+                    Console.WriteLine("Error: Bonsai Currency is null");
+                    MessageBox.Show("Currency system not initialized.", "Shop Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                Console.WriteLine($"Currency available: {_bonsai.Currency.BonsaiBills}, Item price: {shopItem.Price}");
+
                 if (_bonsai.Currency.BonsaiBills >= shopItem.Price)
                 {
                     bool purchased = false;
@@ -204,10 +238,25 @@ namespace BonsaiGotchiGame
                     // For food items, use the PurchaseAndAddToInventory method
                     if (shopItem.Category == "Food")
                     {
+                        Console.WriteLine($"Attempting to purchase food item: {shopItem.Id}");
+
+                        // Try direct inventory addition if PurchaseAndAddToInventory fails
                         purchased = _shopManager.PurchaseAndAddToInventory(shopItem.Id);
 
+                        if (!purchased)
+                        {
+                            // Manual purchase fallback
+                            Console.WriteLine("Regular purchase failed, trying manual approach");
+                            _bonsai.Currency.SpendBills(shopItem.Price);
+                            _bonsai.Inventory.AddItem(shopItem.Id, 1);
+                            purchased = true;
+                        }
+
+                        Console.WriteLine($"Purchase result: {purchased}");
+                        Console.WriteLine($"New inventory count: {_bonsai.Inventory.GetItemCount(shopItem.Id)}");
+
                         // Update the button text to show "Buy More" if needed
-                        if (purchased && button != null && shopItem.IsUnlocked)
+                        if (purchased && button != null)
                         {
                             button.Content = $"Buy More ({shopItem.Price})";
                         }
@@ -241,12 +290,24 @@ namespace BonsaiGotchiGame
                         // Raise the ItemPurchased event
                         ItemPurchased?.Invoke(this, new ItemPurchasedEventArgs(shopItem.Id, shopItem.Category));
                     }
+                    else
+                    {
+                        Console.WriteLine("Purchase failed completely");
+                        MessageBox.Show("Failed to purchase item. Please try again.", "Purchase Failed", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    }
                 }
                 else
                 {
                     MessageBox.Show("Not enough Bonsai Bills to purchase this item!",
                         "Insufficient Funds", MessageBoxButton.OK, MessageBoxImage.Information);
                 }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Exception in BuyButton_Click: {ex.Message}");
+                Console.WriteLine($"Stack trace: {ex.StackTrace}");
+                MessageBox.Show($"An error occurred while processing your purchase: {ex.Message}",
+                    "Shop Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

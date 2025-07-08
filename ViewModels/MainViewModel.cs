@@ -189,6 +189,8 @@ namespace BonsaiGotchiGame.ViewModels
             }
         }
 
+        // Update the LoadBonsai method or equivalent in MainWindow.cs
+        // Update the LoadBonsai method or equivalent in MainViewModel.cs
         private void LoadBonsai()
         {
             try
@@ -206,6 +208,10 @@ namespace BonsaiGotchiGame.ViewModels
 
                             Bonsai = loadedBonsai;
                             StatusMessage = "Bonsai loaded successfully!";
+
+                            // Notify UI that inventory has been loaded
+                            SyncInventoryWithUI();
+
                             UpdateBackground(); // Update background after loading bonsai
                         });
                     }
@@ -230,6 +236,38 @@ namespace BonsaiGotchiGame.ViewModels
                 Bonsai = new Bonsai();
                 StatusMessage = "Error loading bonsai: " + ex.Message;
                 UpdateBackground(); // Update background after fallback to new bonsai
+            }
+        }
+
+        // Method to sync inventory with UI
+        public void SyncInventoryWithUI()
+        {
+            if (Bonsai == null) return;
+
+            // Notify UI that inventory items have changed
+            OnPropertyChanged(nameof(Bonsai.Inventory));
+
+            // Log inventory items for debugging
+            foreach (var item in Bonsai?.Inventory?.Items ?? new Dictionary<string, int>())
+            {
+                Console.WriteLine($"Inventory item: {item.Key}, Count: {item.Value}");
+            }
+        }
+
+        // Helper method to load a bonsai with shop manager
+        public async Task<(Bonsai Bonsai, List<string> UnlockedItems)> LoadBonsaiWithShopManagerAsync(ShopManager shopManager)
+        {
+            if (_saveLoadService == null)
+                return (new Bonsai(), new List<string>());
+
+            try
+            {
+                return await _saveLoadService.LoadBonsaiAsync(shopManager);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error loading bonsai with shop manager: {ex.Message}");
+                return (new Bonsai(), new List<string>());
             }
         }
 

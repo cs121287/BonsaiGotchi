@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Windows;
 using BonsaiGotchiGame.Models;
 
@@ -23,7 +25,7 @@ namespace BonsaiGotchiGame
             _bonsai = bonsai;
             _shopManager = shopManager;
             _activityType = activityType;
-            _selectableItems = new ObservableCollection<SelectableShopItem>(); // Initialize here to fix the error
+            _selectableItems = new ObservableCollection<SelectableShopItem>();
 
             // Set header text
             HeaderText.Text = $"Select {activityType} Item";
@@ -36,15 +38,20 @@ namespace BonsaiGotchiGame
         {
             var availableItems = _shopManager.GetItemsByType(_activityType);
 
-            _selectableItems.Clear(); // Clear existing items
+            _selectableItems.Clear();
 
             foreach (var item in availableItems)
             {
                 _selectableItems.Add(new SelectableShopItem(item));
             }
 
-            // Select the first item by default
-            if (_selectableItems.Count > 0)
+            // Select the first unlocked item by default
+            var firstUnlocked = _selectableItems.FirstOrDefault(i => i.Item.IsUnlocked);
+            if (firstUnlocked != null)
+            {
+                firstUnlocked.IsSelected = true;
+            }
+            else if (_selectableItems.Count > 0)
             {
                 _selectableItems[0].IsSelected = true;
             }
@@ -74,10 +81,15 @@ namespace BonsaiGotchiGame
             // Get the selected item
             var selectedItem = _selectableItems.FirstOrDefault(i => i.IsSelected);
 
-            if (selectedItem != null)
+            if (selectedItem != null && selectedItem.Item.IsUnlocked)
             {
                 SelectedActivity = selectedItem.Item;
                 DialogResult = true;
+            }
+            else if (selectedItem != null && !selectedItem.Item.IsUnlocked)
+            {
+                MessageBox.Show("This item is not unlocked yet. Please purchase it from the shop first.",
+                    "Item Not Available", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             else
             {
@@ -87,20 +99,43 @@ namespace BonsaiGotchiGame
         }
     }
 
-    public class SelectableShopItem
+    public class SelectableShopItem : INotifyPropertyChanged
     {
+        private bool _isSelected;
+
         public ShopItem Item { get; }
-        public bool IsSelected { get; set; }
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected != value)
+                {
+                    _isSelected = value;
+                    OnPropertyChanged();
+                }
+            }
+        }
 
         public string Id => Item.Id;
         public string Name => Item.Name;
         public string Description => Item.Description;
         public string Icon => Item.Icon;
+        public bool IsUnlocked => Item.IsUnlocked;
+        public int Price => Item.Price;
 
         public SelectableShopItem(ShopItem item)
         {
-            Item = item;
-            IsSelected = false;
+            Item = item ?? throw new ArgumentNullException(nameof(item));
+            _isSelected = false;
+        }
+
+        public event PropertyChangedEventHandler? PropertyChanged;
+
+        protected virtual void OnPropertyChanged([CallerMemberName] string? propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
         }
     }
 }

@@ -35,15 +35,19 @@ namespace BonsaiGotchiGame
         private HealthCondition _previousHealthCondition = HealthCondition.Healthy;
         private SpriteAnimator? _spriteAnimator;
         private bool _disposed = false;
-        private readonly object _updateLock = new object(); // Add lock for thread safety
-        private readonly object _xpAnimLock = new object(); // Lock for XP animations
+        private readonly object _updateLock = new object();
+        private readonly object _xpAnimLock = new object();
+        private readonly object _eventHandlerLock = new object();
         private int _lastXpValue = 0;
         private Dictionary<int, DateTime> _recentXpGains = new Dictionary<int, DateTime>();
+
+        // Background system
+        private BackgroundService? _backgroundService;
+        private int _lastHour = -1; // Track the last hour we updated the background
 
         // Currency and Shop System
         private ShopManager? _shopManager;
         private Dictionary<string, ShopItem> _currentActivityItems = new Dictionary<string, ShopItem>();
-        private Button? _shopButton;
 
         // Dictionary to track cooldown timers without modifying button content
         private Dictionary<string, DispatcherTimer> _cooldownTimers = new Dictionary<string, DispatcherTimer>();
@@ -54,22 +58,25 @@ namespace BonsaiGotchiGame
 
         public Bonsai Bonsai
         {
-            get => _bonsai;
+            get => _viewModel?.Bonsai ?? _bonsai;
             set
             {
-                if (_bonsai != null)
+                lock (_eventHandlerLock)
                 {
-                    // Unsubscribe from old bonsai
-                    _bonsai.PropertyChanged -= Bonsai_PropertyChanged;
-                }
+                    if (_bonsai != null)
+                    {
+                        // Unsubscribe from old bonsai
+                        _bonsai.PropertyChanged -= Bonsai_PropertyChanged;
+                    }
 
-                _bonsai = value;
-                _lastXpValue = _bonsai.XP; // Initialize last XP value
+                    _bonsai = value;
+                    _lastXpValue = _bonsai?.XP ?? 0;
 
-                if (_bonsai != null)
-                {
-                    // Subscribe to new bonsai
-                    _bonsai.PropertyChanged += Bonsai_PropertyChanged;
+                    if (_bonsai != null)
+                    {
+                        // Subscribe to new bonsai
+                        _bonsai.PropertyChanged += Bonsai_PropertyChanged;
+                    }
                 }
 
                 OnPropertyChanged();
@@ -78,20 +85,35 @@ namespace BonsaiGotchiGame
 
         public string StatusMessage
         {
-            get => _statusMessage;
-            set { _statusMessage = value; OnPropertyChanged(); }
+            get => _viewModel?.StatusMessage ?? _statusMessage;
+            set
+            {
+                _statusMessage = value;
+                OnPropertyChanged();
+            }
         }
 
         public BitmapImage? CurrentBackgroundImage
         {
             get => _currentBackgroundImage;
-            set { _currentBackgroundImage = value; OnPropertyChanged(); }
+            set
+            {
+                if (_currentBackgroundImage != value)
+                {
+                    _currentBackgroundImage = value;
+                    OnPropertyChanged();
+                }
+            }
         }
 
         public bool IsInteractionEnabled
         {
-            get => _isInteractionEnabled;
-            set { _isInteractionEnabled = value; OnPropertyChanged(); }
+            get => _viewModel?.IsInteractionEnabled ?? _isInteractionEnabled;
+            set
+            {
+                _isInteractionEnabled = value;
+                OnPropertyChanged();
+            }
         }
 
         public ObservableCollection<string> JournalEntries => _journalEntries;
@@ -105,8 +127,13 @@ namespace BonsaiGotchiGame
 
             try
             {
+                // Initialize background service first
+                _backgroundService = new BackgroundService();
+
                 // Create and set the ViewModel
                 _viewModel = new MainViewModel();
+
+                // Set DataContext to ViewModel for most bindings
                 DataContext = _viewModel;
 
                 // Initialize food inventory system
@@ -115,6 +142,9 @@ namespace BonsaiGotchiGame
                 // Initialize currency system and shop manager
                 if (_viewModel.Bonsai != null)
                 {
+                    // Set the bonsai from ViewModel
+                    Bonsai = _viewModel.Bonsai;
+
                     // Initialize currency if it doesn't exist
                     if (_viewModel.Bonsai.Currency == null)
                     {
@@ -126,24 +156,122 @@ namespace BonsaiGotchiGame
 
                     // Set default activities
                     InitializeDefaultActivities();
-
-                    // Add shop button to UI
-                    AddShopButton();
                 }
 
                 // Initialize background animator - will be fully set up in Window_Loaded
                 if (_viewModel != null)
                 {
                     _viewModel.BonsaiStateChanged += ViewModel_BonsaiStateChanged;
+
+                    // Subscribe to ViewModel property changes
+                    _viewModel.PropertyChanged += ViewModel_PropertyChanged;
+                }
+
+                // Set up the journal binding manually since it's on MainWindow
+                if (JournalEntriesList != null)
+                {
+                    JournalEntriesList.ItemsSource = _journalEntries;
                 }
 
                 // Add initial journal entry
                 AddJournalEntry("Welcome to BonsaiGotchi! Your bonsai awaits your care.");
+                AddJournalEntry("Your journey with your bonsai begins now.");
+
+                // Set initial background
+                UpdateBackgroundImage();
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Error initializing application: {ex.Message}", "Initialization Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void UpdateBackgroundImage()
+        {
+            try
+            {
+                if (_backgroundService == null || _viewModel?.Bonsai == null)
+                    return;
+
+                int currentHour = _viewModel.Bonsai.GameHour;
+
+                // Only update if the hour has changed or this is the first update
+                if (currentHour != _lastHour)
+                {
+                    var backgroundImage = _backgroundService.GetBackgroundImage(currentHour);
+
+                    if (backgroundImage != null)
+                    {
+                        CurrentBackgroundImage = backgroundImage;
+
+                        // Also update the BackgroundImage control directly
+                        if (BackgroundImage != null)
+                        {
+                            BackgroundImage.Source = backgroundImage;
+                        }
+
+                        _lastHour = currentHour;
+
+                        // Add debug output
+                        Console.WriteLine($"Background updated for hour {currentHour}");
+
+                        // Log the background change
+                        string timeOfDay = GetTimeOfDayDescription(currentHour);
+                        AddJournalEntry($"The time of day has changed to {timeOfDay}.");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error updating background image: {ex.Message}");
+            }
+        }
+
+        private string GetTimeOfDayDescription(int hour)
+        {
+            return hour switch
+            {
+                >= 6 and < 12 => "morning",
+                >= 12 and < 18 => "afternoon",
+                >= 18 and < 22 => "evening",
+                _ => "night"
+            };
+        }
+
+        private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            try
+            {
+                // Forward ViewModel property changes to our properties for binding
+                switch (e.PropertyName)
+                {
+                    case nameof(MainViewModel.StatusMessage):
+                        OnPropertyChanged(nameof(StatusMessage));
+                        break;
+                    case nameof(MainViewModel.CurrentBackgroundImage):
+                        // Update our background image when ViewModel changes
+                        if (_viewModel?.CurrentBackgroundImage != null)
+                        {
+                            CurrentBackgroundImage = _viewModel.CurrentBackgroundImage;
+                            if (BackgroundImage != null)
+                            {
+                                BackgroundImage.Source = _viewModel.CurrentBackgroundImage;
+                            }
+                        }
+                        break;
+                    case nameof(MainViewModel.IsInteractionEnabled):
+                        OnPropertyChanged(nameof(IsInteractionEnabled));
+                        break;
+                    case nameof(MainViewModel.Bonsai):
+                        Bonsai = _viewModel?.Bonsai ?? new Bonsai();
+                        OnPropertyChanged(nameof(Bonsai));
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error in ViewModel_PropertyChanged: {ex.Message}");
             }
         }
 
@@ -179,28 +307,45 @@ namespace BonsaiGotchiGame
         private void UpdateFoodButtonInventoryCounts()
         {
             // Update inventory counts on food buttons
-            UpdateFoodButtonTag(FeedBasicFertilizerButton, Bonsai.BASIC_FERTILIZER_ID);
-            UpdateFoodButtonTag(FeedBurgerButton, Bonsai.BURGER_ID);
-            UpdateFoodButtonTag(FeedIceCreamButton, Bonsai.ICE_CREAM_ID);
-            UpdateFoodButtonTag(FeedVegetablesButton, Bonsai.VEGETABLES_ID);
-            UpdateFoodButtonTag(FeedPremiumNutrientsButton, Bonsai.PREMIUM_NUTRIENTS_ID);
-            UpdateFoodButtonTag(FeedSpecialTreatButton, Bonsai.SPECIAL_TREAT_ID);
+            UpdateFoodButtonDisplay(FeedBasicFertilizerButton, Bonsai.BASIC_FERTILIZER_ID);
+            UpdateFoodButtonDisplay(FeedBurgerButton, Bonsai.BURGER_ID);
+            UpdateFoodButtonDisplay(FeedIceCreamButton, Bonsai.ICE_CREAM_ID);
+            UpdateFoodButtonDisplay(FeedVegetablesButton, Bonsai.VEGETABLES_ID);
+            UpdateFoodButtonDisplay(FeedPremiumNutrientsButton, Bonsai.PREMIUM_NUTRIENTS_ID);
+            UpdateFoodButtonDisplay(FeedSpecialTreatButton, Bonsai.SPECIAL_TREAT_ID);
         }
 
-        private void UpdateFoodButtonTag(Button button, string itemId)
+        // Add this method to fix food button display logic
+        private void UpdateFoodButtonDisplay(Button? button, string foodId)
         {
-            if (button == null || Bonsai == null || Bonsai.Inventory == null) return;
+            if (button == null) return;
 
-            int count = Bonsai.Inventory.GetItemCount(itemId);
-
-            // For basic fertilizer (which is unlimited) or no items, hide the counter
-            if (count == -1 || count == 0)
+            try
             {
-                button.Tag = null;
+                int count = _viewModel?.Bonsai?.Inventory?.GetItemCount(foodId) ?? 0;
+
+                // Always enable the button (clicking with 0 items will show shop or do nothing)
+                button.IsEnabled = true;
+
+                // Show count in tag for display, but show 0 if we have 0 items
+                if (count == -1) // unlimited (basic fertilizer)
+                {
+                    button.Tag = null; // Don't show count for unlimited items
+                }
+                else if (count > 0)
+                {
+                    button.Tag = count.ToString();
+                }
+                else
+                {
+                    button.Tag = "0"; // Show 0 when we have no items
+                }
             }
-            else
+            catch (Exception ex)
             {
-                button.Tag = count.ToString();
+                Console.WriteLine($"Error updating food button display: {ex.Message}");
+                button.IsEnabled = true; // Always keep enabled as fallback
+                button.Tag = "0";
             }
         }
 
@@ -213,11 +358,31 @@ namespace BonsaiGotchiGame
         // Shop window event handler - fixed signature with nullable sender
         private void ShopWindow_ItemPurchased(object? sender, ShopWindow.ItemPurchasedEventArgs e)
         {
-            // Update the inventory display when an item is purchased
-            RefreshInventoryDisplay();
+            try
+            {
+                // Sync the food inventory first
+                SyncFoodInventoryWithBonsai();
 
-            // Add a journal entry about the purchase
-            AddJournalEntry($"Purchased {e.ItemId} from the shop!");
+                // Update the inventory display when an item is purchased
+                RefreshInventoryDisplay();
+
+                // Add a journal entry about the purchase
+                AddJournalEntry($"Purchased {e.ItemId} from the shop!");
+
+                // Add debugging info
+                Console.WriteLine($"Item purchased: {e.ItemId}, Category: {e.Category}");
+                if (_viewModel?.Bonsai?.Inventory != null)
+                {
+                    Console.WriteLine($"Current inventory count: {_viewModel.Bonsai.Inventory.GetItemCount(e.ItemId)}");
+                }
+
+                // Force update of all food buttons
+                UpdateFoodButtonsDisplay();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error handling shop purchase: {ex.Message}");
+            }
         }
 
         // Update food button displays with inventory counts
@@ -239,49 +404,6 @@ namespace BonsaiGotchiGame
             }
         }
 
-        // Update a single food button display
-        private void UpdateFoodButtonDisplay(Button button, string foodId)
-        {
-            if (button == null) return;
-
-            try
-            {
-                // Check if we have inventory for this food
-                if (_foodInventory.TryGetValue(foodId, out int count))
-                {
-                    // If count is -1, it means unlimited
-                    if (count == -1)
-                    {
-                        button.IsEnabled = true;
-
-                        // Clear any existing badge
-                        if (button.Tag != null)
-                        {
-                            button.Tag = null;
-                        }
-                    }
-                    else
-                    {
-                        // Update the button's Tag with the count for display
-                        button.Tag = count > 0 ? count.ToString() : null;
-
-                        // Enable/disable based on inventory
-                        button.IsEnabled = count > 0;
-                    }
-                }
-                else
-                {
-                    // No inventory record found, disable button
-                    button.IsEnabled = false;
-                    button.Tag = null;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error updating food button display: {ex.Message}");
-            }
-        }
-
         // Add a food item to inventory
         private void AddFoodToInventory(string foodId, int quantity = 1)
         {
@@ -300,11 +422,19 @@ namespace BonsaiGotchiGame
                     _foodInventory[foodId] = quantity;
                 }
 
-                // Update button display
-                Dispatcher.Invoke(() =>
+                // Update button display safely on UI thread
+                if (Dispatcher.CheckAccess())
                 {
                     UpdateFoodButtonsDisplay();
-                });
+                }
+                else
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!_disposed)
+                            UpdateFoodButtonsDisplay();
+                    }), DispatcherPriority.Background);
+                }
             }
             catch (Exception ex)
             {
@@ -328,11 +458,19 @@ namespace BonsaiGotchiGame
                         // Reduce count
                         _foodInventory[foodId]--;
 
-                        // Update button display
-                        Dispatcher.Invoke(() =>
+                        // Update button display safely on UI thread
+                        if (Dispatcher.CheckAccess())
                         {
                             UpdateFoodButtonsDisplay();
-                        });
+                        }
+                        else
+                        {
+                            Dispatcher.BeginInvoke(new Action(() =>
+                            {
+                                if (!_disposed)
+                                    UpdateFoodButtonsDisplay();
+                            }), DispatcherPriority.Background);
+                        }
 
                         return true;
                     }
@@ -368,45 +506,29 @@ namespace BonsaiGotchiGame
             }
         }
 
-        // Add a shop button to the UI
-        private void AddShopButton()
+        private void SyncFoodInventoryWithBonsai()
         {
-            try
+            if (_viewModel?.Bonsai?.Inventory == null) return;
+
+            // Clear the existing food inventory dictionary
+            _foodInventory.Clear();
+
+            // Set basic fertilizer as unlimited
+            _foodInventory["basic_fertilizer"] = -1;
+
+            // Copy inventory items from Bonsai to the local dictionary
+            foreach (var item in _viewModel.Bonsai.Inventory.Items)
             {
-                _shopButton = new Button
-                {
-                    Content = "🛒",
-                    Height = 34,
-                    Width = 34,
-                    Margin = new Thickness(5, 0, 0, 0),
-                    Background = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#795548")),
-                    Foreground = Brushes.White,
-                    BorderThickness = new Thickness(0),
-                    ToolTip = "Shop"
-                };
+                if (item.Key == Bonsai.BASIC_FERTILIZER_ID) continue; // Skip basic fertilizer
 
-                _shopButton.Click += ShopButton_Click;
-
-                // Add the button to the header next to the settings button
-                if (HeaderBar != null && HeaderBar.Child is Grid headerGrid)
-                {
-                    // Add a new column to the grid
-                    var newColumn = new ColumnDefinition { Width = GridLength.Auto };
-                    headerGrid.ColumnDefinitions.Add(newColumn);
-
-                    // Add the shop button to the new column
-                    Grid.SetColumn(_shopButton, headerGrid.ColumnDefinitions.Count - 1);
-                    headerGrid.Children.Add(_shopButton);
-                }
+                _foodInventory[item.Key] = item.Value;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Error adding shop button: {ex.Message}");
-            }
+
+            Console.WriteLine("Food inventory synced with Bonsai inventory");
         }
 
         // Shop button click handler
-        private void ShopButton_Click(object sender, RoutedEventArgs e)
+        private void Shop_Click(object sender, RoutedEventArgs e)
         {
             if (_viewModel?.Bonsai == null || _shopManager == null) return;
 
@@ -429,7 +551,7 @@ namespace BonsaiGotchiGame
                 // Set up sprite animator now that the window is loaded
                 InitializeSpriteAnimator();
 
-                // Initialize background animator
+                // Initialize background animator in ViewModel
                 if (_viewModel != null)
                 {
                     _viewModel.InitializeBackgroundAnimator(BackgroundImage);
@@ -440,6 +562,10 @@ namespace BonsaiGotchiGame
                         _lastXpValue = _viewModel.Bonsai.XP;
                     }
                 }
+
+                // Add this to sync inventory
+                SyncFoodInventoryWithBonsai();
+
                 // Initialize inventory system and display counts
                 InitializeInventory();
 
@@ -457,6 +583,26 @@ namespace BonsaiGotchiGame
 
                 // Update food button displays
                 UpdateFoodButtonsDisplay();
+
+                // Add some sample journal entries to test the journal
+                AddJournalEntry("Game loaded successfully!");
+                AddJournalEntry("Your bonsai is ready for your care and attention.");
+
+                // Force property change notifications to update UI
+                OnPropertyChanged(nameof(Bonsai));
+                OnPropertyChanged(nameof(StatusMessage));
+                OnPropertyChanged(nameof(IsInteractionEnabled));
+
+                // Update the background image immediately
+                UpdateBackgroundImage();
+
+                // Set up a timer to periodically check for background updates
+                var backgroundTimer = new DispatcherTimer
+                {
+                    Interval = TimeSpan.FromSeconds(30) // Check every 30 seconds
+                };
+                backgroundTimer.Tick += (s, args) => UpdateBackgroundImage();
+                backgroundTimer.Start();
             }
             catch (Exception ex)
             {
@@ -502,14 +648,17 @@ namespace BonsaiGotchiGame
         {
             try
             {
-                // Update sprite animation based on state
+                // Update sprite animation based on state with null check
                 _spriteAnimator?.UpdateAnimation(state);
 
                 // Update journal based on state changes
                 AddJournalEntry($"Your bonsai's state changed to {state}.");
 
-                // Apply visual effects based on state
-                AnimationService.AnimateStatusMessage(StatusTextBlock);
+                // Apply visual effects based on state with null check
+                if (StatusTextBlock != null)
+                {
+                    AnimationService.AnimateStatusMessage(StatusTextBlock);
+                }
             }
             catch (Exception ex)
             {
@@ -526,10 +675,34 @@ namespace BonsaiGotchiGame
                 {
                     string action = e.PropertyName.Substring(3); // Remove "Can" prefix
 
-                    // Update action button enabled state in UI thread
-                    Dispatcher.Invoke(() => {
+                    // Update action button enabled state in UI thread safely
+                    if (Dispatcher.CheckAccess())
+                    {
                         UpdateButtonState(action);
-                    });
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                                UpdateButtonState(action);
+                        }), DispatcherPriority.Background);
+                    }
+                }
+
+                // Check for time changes to update background
+                if (e.PropertyName == nameof(Bonsai.GameHour))
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        UpdateBackgroundImage();
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                                UpdateBackgroundImage();
+                        }), DispatcherPriority.Background);
+                    }
                 }
 
                 // Check for XP changes to trigger animations
@@ -545,11 +718,19 @@ namespace BonsaiGotchiGame
                             int uniqueKey = DateTime.Now.GetHashCode() + xpGained;
                             _recentXpGains[uniqueKey] = DateTime.Now;
 
-                            // Animate XP gain in UI thread
-                            Dispatcher.BeginInvoke(new Action(() =>
+                            // Animate XP gain in UI thread safely
+                            if (Dispatcher.CheckAccess())
                             {
                                 ShowXPGainAnimation(xpGained);
-                            }));
+                            }
+                            else
+                            {
+                                Dispatcher.BeginInvoke(new Action(() =>
+                                {
+                                    if (!_disposed)
+                                        ShowXPGainAnimation(xpGained);
+                                }), DispatcherPriority.Background);
+                            }
                         }
                         _lastXpValue = currentXP;
                     }
@@ -558,7 +739,8 @@ namespace BonsaiGotchiGame
                 // Check for level up
                 if (e.PropertyName == nameof(Bonsai.Level) && sender is Bonsai levelBonsai && levelBonsai.Level > _previousLevel)
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         ShowLevelUpAnimation();
 
                         // Award 5 Bonsai Bills for level up
@@ -567,36 +749,81 @@ namespace BonsaiGotchiGame
                             levelBonsai.Currency.AddBills(5);
                             AddJournalEntry($"You received 5 Bonsai Bills for reaching level {levelBonsai.Level}!");
                         }
-                    });
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                            {
+                                ShowLevelUpAnimation();
+
+                                // Award 5 Bonsai Bills for level up
+                                if (levelBonsai.Currency != null)
+                                {
+                                    levelBonsai.Currency.AddBills(5);
+                                    AddJournalEntry($"You received 5 Bonsai Bills for reaching level {levelBonsai.Level}!");
+                                }
+                            }
+                        }), DispatcherPriority.Background);
+                    }
                     _previousLevel = levelBonsai.Level;
                 }
 
                 // Check for mood state change
                 if (e.PropertyName == nameof(Bonsai.MoodState) && sender is Bonsai moodBonsai && moodBonsai.MoodState != _previousMoodState)
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         AddJournalEntry($"Your bonsai's mood changed to {moodBonsai.MoodState}.");
                         UpdateMoodEmoji();
 
                         // Update XP multiplier display when mood changes
-                        AnimationService.AnimateProgressChange(XPProgressBar, XPProgressBar.Value, XPProgressBar.Value);
-                    });
+                        if (XPProgressBar != null)
+                        {
+                            AnimationService.AnimateProgressChange(XPProgressBar, XPProgressBar.Value, XPProgressBar.Value);
+                        }
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                            {
+                                AddJournalEntry($"Your bonsai's mood changed to {moodBonsai.MoodState}.");
+                                UpdateMoodEmoji();
+
+                                // Update XP multiplier display when mood changes
+                                if (XPProgressBar != null)
+                                {
+                                    AnimationService.AnimateProgressChange(XPProgressBar, XPProgressBar.Value, XPProgressBar.Value);
+                                }
+                            }
+                        }), DispatcherPriority.Background);
+                    }
                     _previousMoodState = moodBonsai.MoodState;
                 }
 
                 // Check for growth stage change
                 if (e.PropertyName == nameof(Bonsai.GrowthStage) && sender is Bonsai stageBonsai && stageBonsai.GrowthStage != _previousGrowthStage)
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         AddJournalEntry($"Your bonsai has evolved into a {stageBonsai.GrowthStage}!");
-                    });
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                                AddJournalEntry($"Your bonsai has evolved into a {stageBonsai.GrowthStage}!");
+                        }), DispatcherPriority.Background);
+                    }
                     _previousGrowthStage = stageBonsai.GrowthStage;
                 }
 
                 // Check for health condition change
                 if (e.PropertyName == nameof(Bonsai.HealthCondition) && sender is Bonsai healthBonsai && healthBonsai.HealthCondition != _previousHealthCondition)
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         if (healthBonsai.HealthCondition == HealthCondition.Healthy)
                         {
                             AddJournalEntry($"Your bonsai has recovered and is now healthy!");
@@ -605,27 +832,106 @@ namespace BonsaiGotchiGame
                         {
                             AddJournalEntry($"Your bonsai has developed {healthBonsai.HealthCondition}! Take care of it!");
                         }
-                    });
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                            {
+                                if (healthBonsai.HealthCondition == HealthCondition.Healthy)
+                                {
+                                    AddJournalEntry($"Your bonsai has recovered and is now healthy!");
+                                }
+                                else
+                                {
+                                    AddJournalEntry($"Your bonsai has developed {healthBonsai.HealthCondition}! Take care of it!");
+                                }
+                            }
+                        }), DispatcherPriority.Background);
+                    }
                     _previousHealthCondition = healthBonsai.HealthCondition;
                 }
 
                 // Update streak displays
                 if (e.PropertyName == nameof(Bonsai.ConsecutiveDaysGoodCare))
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         // Highlight the streak display when it changes
-                        AnimationService.PulseElement(XPProgressBar, TimeSpan.FromSeconds(1));
-                    });
+                        if (XPProgressBar != null)
+                        {
+                            AnimationService.PulseElement(XPProgressBar, TimeSpan.FromSeconds(1));
+                        }
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed && XPProgressBar != null)
+                            {
+                                // Highlight the streak display when it changes
+                                AnimationService.PulseElement(XPProgressBar, TimeSpan.FromSeconds(1));
+                            }
+                        }), DispatcherPriority.Background);
+                    }
                 }
 
                 // Update currency display
                 if (e.PropertyName == nameof(Bonsai.Currency) ||
                     (e.PropertyName == "BonsaiBills" && sender is Currency))
                 {
-                    Dispatcher.Invoke(() => {
+                    if (Dispatcher.CheckAccess())
+                    {
                         // Update the currency display in the UI
                         UpdateCurrencyDisplay();
-                    });
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                            {
+                                // Update the currency display in the UI
+                                UpdateCurrencyDisplay();
+                            }
+                        }), DispatcherPriority.Background);
+                    }
+                }
+
+                // Update inventory displays
+                if (e.PropertyName == nameof(Bonsai.Inventory) || e.PropertyName?.Contains("Inventory") == true)
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        UpdateFoodButtonsDisplay();
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                                UpdateFoodButtonsDisplay();
+                        }), DispatcherPriority.Background);
+                    }
+                }
+
+                // Force UI updates for key properties
+                if (e.PropertyName == nameof(Bonsai.Water) || e.PropertyName == nameof(Bonsai.Health) ||
+                    e.PropertyName == nameof(Bonsai.Energy) || e.PropertyName == nameof(Bonsai.Hunger) ||
+                    e.PropertyName == nameof(Bonsai.Cleanliness) || e.PropertyName == nameof(Bonsai.Growth) ||
+                    e.PropertyName == nameof(Bonsai.Level) || e.PropertyName == nameof(Bonsai.XP) ||
+                    e.PropertyName == nameof(Bonsai.GameHour) || e.PropertyName == nameof(Bonsai.GameMinute) ||
+                    e.PropertyName == nameof(Bonsai.GameDay) || e.PropertyName == nameof(Bonsai.GameMonth) ||
+                    e.PropertyName == nameof(Bonsai.GameYear))
+                {
+                    if (Dispatcher.CheckAccess())
+                    {
+                        OnPropertyChanged(nameof(Bonsai));
+                    }
+                    else
+                    {
+                        Dispatcher.BeginInvoke(new Action(() => {
+                            if (!_disposed)
+                                OnPropertyChanged(nameof(Bonsai));
+                        }), DispatcherPriority.Background);
+                    }
                 }
             }
             catch (Exception ex)
@@ -670,9 +976,12 @@ namespace BonsaiGotchiGame
                 // If action was previously on cooldown and is now enabled
                 if (!(!isEnabled || !_cooldownTimers.ContainsKey(actionName)))
                 {
-                    // Stop the cooldown timer
-                    _cooldownTimers[actionName].Stop();
-                    _cooldownTimers.Remove(actionName);
+                    // Stop the cooldown timer safely
+                    if (_cooldownTimers.TryGetValue(actionName, out var timer))
+                    {
+                        timer.Stop();
+                        _cooldownTimers.Remove(actionName);
+                    }
 
                     // Remove cooldown label if it exists
                     if (_cooldownLabels.ContainsKey(actionName))
@@ -725,7 +1034,7 @@ namespace BonsaiGotchiGame
 
         private void UpdateMoodEmoji()
         {
-            if (_viewModel?.Bonsai == null) return;
+            if (_viewModel?.Bonsai == null || MoodEmoji == null) return;
 
             MoodEmoji.Text = _viewModel.Bonsai.MoodState switch
             {
@@ -742,15 +1051,24 @@ namespace BonsaiGotchiGame
 
         private void ShowLevelUpAnimation()
         {
-            if (_viewModel?.Bonsai == null) return;
+            if (_viewModel?.Bonsai == null || LevelUpDisplay == null) return;
 
             // Set level up display content
-            NewLevelText.Text = $"Your bonsai reached level {_viewModel.Bonsai.Level}!";
-            NewStageText.Text = $"Growth Stage: {_viewModel.Bonsai.GrowthStage}";
+            if (NewLevelText != null)
+            {
+                NewLevelText.Text = $"Your bonsai reached level {_viewModel.Bonsai.Level}!";
+            }
+            if (NewStageText != null)
+            {
+                NewStageText.Text = $"Growth Stage: {_viewModel.Bonsai.GrowthStage}";
+            }
 
             // Set XP bonus text
-            double xpBonus = _viewModel.Bonsai.XPMultiplier - 1.0;
-            LevelUpXPText.Text = $"+{xpBonus:P0} XP Multiplier";
+            if (LevelUpXPText != null)
+            {
+                double xpBonus = _viewModel.Bonsai.XPMultiplier - 1.0;
+                LevelUpXPText.Text = $"+{xpBonus:P0} XP Multiplier";
+            }
 
             // Show the level up overlay
             LevelUpDisplay.Visibility = Visibility.Visible;
@@ -772,7 +1090,10 @@ namespace BonsaiGotchiGame
         private void LevelUpContinue_Click(object sender, RoutedEventArgs e)
         {
             // Hide level up display and re-enable interactions
-            LevelUpDisplay.Visibility = Visibility.Collapsed;
+            if (LevelUpDisplay != null)
+            {
+                LevelUpDisplay.Visibility = Visibility.Collapsed;
+            }
             IsInteractionEnabled = true;
 
             // Apply button animation
@@ -781,7 +1102,7 @@ namespace BonsaiGotchiGame
 
         private void ShowXPGainAnimation(int xpAmount)
         {
-            if (xpAmount <= 0) return;
+            if (xpAmount <= 0 || XPGainCanvas == null) return;
 
             try
             {
@@ -803,68 +1124,65 @@ namespace BonsaiGotchiGame
                     };
 
                     // Place text in the canvas above the bonsai
-                    if (XPGainCanvas != null)
+                    Canvas.SetLeft(xpText, 512 - (xpText.Text.Length * 8)); // Centered horizontally
+                    Canvas.SetTop(xpText, 300); // Above the bonsai
+                    XPGainCanvas.Children.Add(xpText);
+
+                    // Create animation storyboard
+                    var storyboard = new Storyboard();
+
+                    // Create opacity animation (fade in then out)
+                    var opacityAnimation = new DoubleAnimation
                     {
-                        Canvas.SetLeft(xpText, 512 - (xpText.Text.Length * 8)); // Centered horizontally
-                        Canvas.SetTop(xpText, 300); // Above the bonsai
-                        XPGainCanvas.Children.Add(xpText);
+                        From = 0,
+                        To = 1,
+                        Duration = TimeSpan.FromMilliseconds(300),
+                        AutoReverse = false
+                    };
+                    Storyboard.SetTarget(opacityAnimation, xpText);
+                    Storyboard.SetTargetProperty(opacityAnimation, new PropertyPath(TextBlock.OpacityProperty));
+                    storyboard.Children.Add(opacityAnimation);
 
-                        // Create animation storyboard
-                        var storyboard = new Storyboard();
+                    // Create fade out animation
+                    var fadeOutAnimation = new DoubleAnimation
+                    {
+                        From = 1,
+                        To = 0,
+                        BeginTime = TimeSpan.FromMilliseconds(1500),
+                        Duration = TimeSpan.FromMilliseconds(500)
+                    };
+                    Storyboard.SetTarget(fadeOutAnimation, xpText);
+                    Storyboard.SetTargetProperty(fadeOutAnimation, new PropertyPath(TextBlock.OpacityProperty));
+                    storyboard.Children.Add(fadeOutAnimation);
 
-                        // Create opacity animation (fade in then out)
-                        var opacityAnimation = new DoubleAnimation
+                    // Create upward movement animation
+                    var moveUpAnimation = new DoubleAnimation
+                    {
+                        From = 300,
+                        To = 200,
+                        Duration = TimeSpan.FromMilliseconds(2000),
+                        EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+                    };
+                    Storyboard.SetTarget(moveUpAnimation, xpText);
+                    Storyboard.SetTargetProperty(moveUpAnimation, new PropertyPath("(Canvas.Top)"));
+                    storyboard.Children.Add(moveUpAnimation);
+
+                    // Clean up after animation completes
+                    storyboard.Completed += (s, e) =>
+                    {
+                        if (XPGainCanvas != null && XPGainCanvas.Children.Contains(xpText))
                         {
-                            From = 0,
-                            To = 1,
-                            Duration = TimeSpan.FromMilliseconds(300),
-                            AutoReverse = false
-                        };
-                        Storyboard.SetTarget(opacityAnimation, xpText);
-                        Storyboard.SetTargetProperty(opacityAnimation, new PropertyPath(TextBlock.OpacityProperty));
-                        storyboard.Children.Add(opacityAnimation);
-
-                        // Create fade out animation
-                        var fadeOutAnimation = new DoubleAnimation
-                        {
-                            From = 1,
-                            To = 0,
-                            BeginTime = TimeSpan.FromMilliseconds(1500),
-                            Duration = TimeSpan.FromMilliseconds(500)
-                        };
-                        Storyboard.SetTarget(fadeOutAnimation, xpText);
-                        Storyboard.SetTargetProperty(fadeOutAnimation, new PropertyPath(TextBlock.OpacityProperty));
-                        storyboard.Children.Add(fadeOutAnimation);
-
-                        // Create upward movement animation
-                        var moveUpAnimation = new DoubleAnimation
-                        {
-                            From = 300,
-                            To = 200,
-                            Duration = TimeSpan.FromMilliseconds(2000),
-                            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-                        };
-                        Storyboard.SetTarget(moveUpAnimation, xpText);
-                        Storyboard.SetTargetProperty(moveUpAnimation, new PropertyPath("(Canvas.Top)"));
-                        storyboard.Children.Add(moveUpAnimation);
-
-                        // Clean up after animation completes
-                        storyboard.Completed += (s, e) =>
-                        {
-                            if (XPGainCanvas != null && XPGainCanvas.Children.Contains(xpText))
-                            {
-                                XPGainCanvas.Children.Remove(xpText);
-                            }
-                        };
-
-                        // Start the animation
-                        storyboard.Begin();
-
-                        // Also animate the XP progress bar
-                        if (XPProgressBar != null)
-                        {
-                            AnimationService.AnimateProgressChange(XPProgressBar, XPProgressBar.Value - 5, XPProgressBar.Value);
+                            XPGainCanvas.Children.Remove(xpText);
                         }
+                    };
+
+                    // Start the animation
+                    storyboard.Begin();
+
+                    // Also animate the XP progress bar
+                    if (XPProgressBar != null)
+                    {
+                        AnimationService.AnimateProgressChange(XPProgressBar, XPProgressBar.Value - 5, XPProgressBar.Value);
                     }
                 }
             }
@@ -899,15 +1217,59 @@ namespace BonsaiGotchiGame
 
         private void AddJournalEntry(string entry)
         {
-            if (_viewModel?.Bonsai == null) return;
-
-            string timeStamp = $"[Day {_viewModel.Bonsai.GameDay}, {_viewModel.Bonsai.GameHour:D2}:{_viewModel.Bonsai.GameMinute:D2}]";
-            _journalEntries.Insert(0, $"{timeStamp} {entry}");
-
-            // Limit journal entries to prevent memory issues
-            if (_journalEntries.Count > 100)
+            try
             {
-                _journalEntries.RemoveAt(_journalEntries.Count - 1);
+                if (string.IsNullOrWhiteSpace(entry))
+                    return;
+
+                // Use the current bonsai for time stamp
+                string timeStamp;
+                if (_viewModel?.Bonsai != null)
+                {
+                    timeStamp = $"[Day {_viewModel.Bonsai.GameDay}, {_viewModel.Bonsai.GameHour:D2}:{_viewModel.Bonsai.GameMinute:D2}]";
+                }
+                else
+                {
+                    // Fallback to real time if bonsai time is not available
+                    timeStamp = $"[{DateTime.Now:HH:mm}]";
+                }
+
+                string fullEntry = $"{timeStamp} {entry}";
+
+                // Add to journal entries on UI thread
+                if (Dispatcher.CheckAccess())
+                {
+                    _journalEntries.Insert(0, fullEntry);
+
+                    // Limit journal entries to prevent memory issues
+                    if (_journalEntries.Count > 100)
+                    {
+                        _journalEntries.RemoveAt(_journalEntries.Count - 1);
+                    }
+                }
+                else
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        if (!_disposed)
+                        {
+                            _journalEntries.Insert(0, fullEntry);
+
+                            // Limit journal entries to prevent memory issues
+                            if (_journalEntries.Count > 100)
+                            {
+                                _journalEntries.RemoveAt(_journalEntries.Count - 1);
+                            }
+                        }
+                    }), DispatcherPriority.Background);
+                }
+
+                // Debug output
+                Console.WriteLine($"Journal entry added: {fullEntry}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Error adding journal entry: {ex.Message}");
             }
         }
 
@@ -1164,16 +1526,20 @@ namespace BonsaiGotchiGame
         {
             if (!IsInteractionEnabled || _viewModel?.Bonsai == null) return;
 
-            // Check if we have a burger in inventory
-            if (UseFoodFromInventory("burger"))
+            int currentCount = _viewModel.Bonsai.Inventory.GetItemCount("burger");
+
+            if (currentCount > 0)
             {
-                _viewModel.Bonsai.FeedBurger();
-                AddJournalEntry("You fed your bonsai a burger. It enjoyed it but doesn't seem healthier.");
-                AnimationService.AnimateButtonClick(sender as Button);
+                // Use the item if we have it
+                if (_viewModel.Bonsai.FeedBurger())
+                {
+                    AddJournalEntry("You fed your bonsai a burger. It enjoyed it but doesn't seem healthier.");
+                    AnimationService.AnimateButtonClick(sender as Button);
+                }
             }
             else
             {
-                // Show shop to buy a burger
+                // Show shop to buy the item
                 ShowShopForFood("burger");
             }
         }
@@ -1182,16 +1548,18 @@ namespace BonsaiGotchiGame
         {
             if (!IsInteractionEnabled || _viewModel?.Bonsai == null) return;
 
-            // Check if we have ice cream in inventory
-            if (UseFoodFromInventory("ice_cream"))
+            int currentCount = _viewModel.Bonsai.Inventory.GetItemCount("ice_cream");
+
+            if (currentCount > 0)
             {
-                _viewModel.Bonsai.FeedIceCream();
-                AddJournalEntry("You fed your bonsai ice cream. It's very happy but might get sick!");
-                AnimationService.AnimateButtonClick(sender as Button);
+                if (_viewModel.Bonsai.FeedIceCream())
+                {
+                    AddJournalEntry("You fed your bonsai ice cream. It's very happy but might get sick!");
+                    AnimationService.AnimateButtonClick(sender as Button);
+                }
             }
             else
             {
-                // Show shop to buy ice cream
                 ShowShopForFood("ice_cream");
             }
         }
@@ -1200,16 +1568,18 @@ namespace BonsaiGotchiGame
         {
             if (!IsInteractionEnabled || _viewModel?.Bonsai == null) return;
 
-            // Check if we have vegetables in inventory
-            if (UseFoodFromInventory("vegetables"))
+            int currentCount = _viewModel.Bonsai.Inventory.GetItemCount("vegetables");
+
+            if (currentCount > 0)
             {
-                _viewModel.Bonsai.FeedVegetables();
-                AddJournalEntry("You fed your bonsai vegetables. It didn't like them but will be healthier.");
-                AnimationService.AnimateButtonClick(sender as Button);
+                if (_viewModel.Bonsai.FeedVegetables())
+                {
+                    AddJournalEntry("You fed your bonsai vegetables. It didn't like them but will be healthier.");
+                    AnimationService.AnimateButtonClick(sender as Button);
+                }
             }
             else
             {
-                // Show shop to buy vegetables
                 ShowShopForFood("vegetables");
             }
         }
@@ -1218,16 +1588,18 @@ namespace BonsaiGotchiGame
         {
             if (!IsInteractionEnabled || _viewModel?.Bonsai == null) return;
 
-            // Check if we have premium nutrients in inventory
-            if (UseFoodFromInventory("premium_nutrients"))
+            int currentCount = _viewModel.Bonsai.Inventory.GetItemCount("premium_nutrients");
+
+            if (currentCount > 0)
             {
-                _viewModel.Bonsai.FeedPremiumNutrients();
-                AddJournalEntry("You fed your bonsai premium nutrients. It's getting stronger!");
-                AnimationService.AnimateButtonClick(sender as Button);
+                if (_viewModel.Bonsai.FeedPremiumNutrients())
+                {
+                    AddJournalEntry("You fed your bonsai premium nutrients. It's getting stronger!");
+                    AnimationService.AnimateButtonClick(sender as Button);
+                }
             }
             else
             {
-                // Show shop to buy premium nutrients
                 ShowShopForFood("premium_nutrients");
             }
         }
@@ -1236,16 +1608,18 @@ namespace BonsaiGotchiGame
         {
             if (!IsInteractionEnabled || _viewModel?.Bonsai == null) return;
 
-            // Check if we have special treats in inventory
-            if (UseFoodFromInventory("special_treat"))
+            int currentCount = _viewModel.Bonsai.Inventory.GetItemCount("special_treat");
+
+            if (currentCount > 0)
             {
-                _viewModel.Bonsai.FeedSpecialTreat();
-                AddJournalEntry("You gave your bonsai a special treat. It's extremely happy!");
-                AnimationService.AnimateButtonClick(sender as Button);
+                if (_viewModel.Bonsai.FeedSpecialTreat())
+                {
+                    AddJournalEntry("You gave your bonsai a special treat. It's extremely happy!");
+                    AnimationService.AnimateButtonClick(sender as Button);
+                }
             }
             else
             {
-                // Show shop to buy special treats
                 ShowShopForFood("special_treat");
             }
         }
@@ -1322,36 +1696,40 @@ namespace BonsaiGotchiGame
             {
                 if (disposing)
                 {
-                    // Unsubscribe from events
-                    if (_viewModel != null)
+                    // Unsubscribe from events with thread safety
+                    lock (_eventHandlerLock)
                     {
-                        _viewModel.BonsaiStateChanged -= ViewModel_BonsaiStateChanged;
-                        _viewModel.Dispose();
+                        if (_viewModel != null)
+                        {
+                            _viewModel.BonsaiStateChanged -= ViewModel_BonsaiStateChanged;
+                            _viewModel.PropertyChanged -= ViewModel_PropertyChanged;
+                            _viewModel.Dispose();
+                        }
+
+                        if (_bonsai != null)
+                        {
+                            _bonsai.PropertyChanged -= Bonsai_PropertyChanged;
+                        }
                     }
 
-                    if (_bonsai != null)
-                    {
-                        _bonsai.PropertyChanged -= Bonsai_PropertyChanged;
-                    }
-
-                    // Dispose of sprite animator
+                    // Dispose of sprite animator safely
                     if (_spriteAnimator != null)
                     {
                         _spriteAnimator.Dispose();
                         _spriteAnimator = null;
                     }
 
-                    // Clean up timers
+                    // Clean up timers safely
                     _gameTimer.Stop();
 
                     foreach (var timer in _cooldownTimers.Values)
                     {
-                        timer.Stop();
+                        timer?.Stop();
                     }
                     _cooldownTimers.Clear();
                     _cooldownLabels.Clear();
 
-                    // Clear animations
+                    // Clean up animations safely
                     if (XPGainCanvas != null)
                     {
                         XPGainCanvas.Children.Clear();
@@ -1363,6 +1741,15 @@ namespace BonsaiGotchiGame
 
                     // Clear inventory
                     _foodInventory.Clear();
+
+                    // Clear XP gains tracking
+                    lock (_xpAnimLock)
+                    {
+                        _recentXpGains.Clear();
+                    }
+
+                    // Dispose background service
+                    _backgroundService = null;
                 }
 
                 _disposed = true;

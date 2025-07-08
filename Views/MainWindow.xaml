@@ -25,36 +25,41 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
                         <Border Background="{TemplateBinding Background}"
-                            BorderBrush="{TemplateBinding BorderBrush}"
-                            BorderThickness="1"
-                            CornerRadius="4">
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="1"
+                                CornerRadius="4">
                             <Grid>
                                 <!-- Main content -->
                                 <ContentPresenter HorizontalAlignment="Center" 
-                                              VerticalAlignment="Center"/>
+                                                  VerticalAlignment="Center"/>
 
                                 <!-- Inventory count badge -->
                                 <Border x:Name="CountBadge"
-                                    Background="#4CAF50"
-                                    CornerRadius="10"
-                                    Padding="4,1"
-                                    HorizontalAlignment="Right"
-                                    VerticalAlignment="Bottom"
-                                    Margin="0,0,3,3">
+                                        Background="#4CAF50"
+                                        CornerRadius="10"
+                                        Padding="4,1"
+                                        HorizontalAlignment="Right"
+                                        VerticalAlignment="Bottom"
+                                        Margin="0,0,3,3">
                                     <TextBlock Text="{Binding Path=Tag, RelativeSource={RelativeSource TemplatedParent}}" 
-                                           Foreground="White"
-                                           FontSize="9"
-                                           FontWeight="Bold"/>
+                                               Foreground="White"
+                                               FontSize="9"
+                                               FontWeight="Bold"/>
                                 </Border>
                             </Grid>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <!-- Hide the badge when Tag is null or empty -->
+                            <!-- Hide the badge when Tag is null or empty (but not when it's "0") -->
                             <Trigger Property="Tag" Value="{x:Null}">
                                 <Setter TargetName="CountBadge" Property="Visibility" Value="Collapsed"/>
                             </Trigger>
                             <Trigger Property="Tag" Value="">
                                 <Setter TargetName="CountBadge" Property="Visibility" Value="Collapsed"/>
+                            </Trigger>
+
+                            <!-- Change color for 0 count -->
+                            <Trigger Property="Tag" Value="0">
+                                <Setter TargetName="CountBadge" Property="Background" Value="#F44336"/>
                             </Trigger>
 
                             <!-- Button state triggers -->
@@ -64,9 +69,7 @@
                             <Trigger Property="IsPressed" Value="True">
                                 <Setter Property="Background" Value="#FFCC80"/>
                             </Trigger>
-                            <Trigger Property="IsEnabled" Value="False">
-                                <Setter Property="Opacity" Value="0.6"/>
-                            </Trigger>
+                            <!-- Remove the IsEnabled=False trigger that greys out buttons -->
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -97,6 +100,8 @@
                     <!-- Bonsai Bills -->
                     <ColumnDefinition Width="Auto"/>
                     <!-- Game Clock -->
+                    <ColumnDefinition Width="Auto"/>
+                    <!-- Save Button -->
                     <ColumnDefinition Width="Auto"/>
                     <!-- Settings Button -->
                 </Grid.ColumnDefinitions>
@@ -151,7 +156,20 @@
                     </StackPanel>
                 </Border>
 
+                <!-- Save Button -->
                 <Button Grid.Column="3" 
+                        Content="💾" 
+                        Width="34" 
+                        Height="34"
+                        Margin="5,0,0,0"
+                        Click="SaveGame_Click"
+                        Background="#388E3C"
+                        Foreground="White"
+                        BorderThickness="0"
+                        ToolTip="Save Game"/>
+
+                <!-- Settings Button -->
+                <Button Grid.Column="4" 
                         Content="⚙️" 
                         Width="34" 
                         Height="34"
@@ -809,17 +827,17 @@
                                 </StackPanel>
                             </Button>
 
-                            <!-- Save Button -->
-                            <Button x:Name="SaveButton"
+                            <!-- Shop Button (was Save Button) -->
+                            <Button x:Name="ShopButton"
                                     Background="#795548"
                                     Foreground="White"
                                     Margin="2" 
                                     Height="42"
                                     Grid.ColumnSpan="2"
-                                    Click="SaveGame_Click">
+                                    Click="Shop_Click">
                                 <StackPanel>
-                                    <TextBlock Text="💾" FontSize="16" HorizontalAlignment="Center"/>
-                                    <TextBlock Text="Save" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="🛒" FontSize="16" HorizontalAlignment="Center"/>
+                                    <TextBlock Text="Shop" FontSize="11" FontWeight="SemiBold" HorizontalAlignment="Center"/>
                                 </StackPanel>
                             </Button>
                         </UniformGrid>
